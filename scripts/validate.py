@@ -926,7 +926,11 @@ def check_codex_plugin(errors: list[str], name: str) -> None:
     if got is None:
         errors.append(f"{manifest}: missing or not valid JSON (ADR 0036)")
         return
-    claude = read_json(f"plugins/{name}/.claude-plugin/plugin.json") or {}
+    claude_manifest = f"plugins/{name}/.claude-plugin/plugin.json"
+    claude = read_json(claude_manifest)
+    if claude is None:
+        errors.append(f"{claude_manifest}: missing or not valid JSON (ADR 0036)")
+        return
     for key in ("name", "version", "description"):
         want = name if key == "name" else claude.get(key)
         if got.get(key) != want:
@@ -940,9 +944,17 @@ def check_codex_plugin(errors: list[str], name: str) -> None:
 
 def check_codex_manifest(errors: list[str]) -> None:
     """ADR 0036: a plugin the Codex catalog serves from its source folder has a `.codex-plugin/plugin.json` that mirrors its Claude manifest."""
-    listed = (read_json(".agents/plugins/marketplace.json") or {}).get("plugins")
-    for entry in listed if isinstance(listed, list) else []:
-        if entry.get("name") != "agent-skills":  # a generated port, checked by port.py
+    catalog = ".agents/plugins/marketplace.json"
+    if not (ROOT / catalog).is_file():
+        return  # check_public_paths reports a missing catalog
+    listed = (read_json(catalog) or {}).get("plugins")
+    if not isinstance(listed, list):
+        errors.append(f"{catalog}: missing, not valid JSON or without a 'plugins' list (ADR 0036)")
+        return
+    for entry in listed:
+        if not isinstance(entry, dict):
+            errors.append(f"{catalog}: plugin entry {entry!r} is not an object (ADR 0036)")
+        elif entry.get("name") != "agent-skills":  # a generated port, checked by port.py
             check_codex_plugin(errors, str(entry.get("name")))
 
 

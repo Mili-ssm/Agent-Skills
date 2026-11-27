@@ -742,3 +742,23 @@ def test_codex_manifest_without_hooks_key(mini_repo):
     put(mini_repo, CODEX_MANIFEST, json.dumps(manifest))
     [error] = codex_errors()
     assert "'hooks' None" in error
+
+
+def test_codex_manifest_with_broken_claude_manifest(mini_repo):
+    codex_memory_repo(mini_repo)
+    put(mini_repo, f"{MEMORY}/.claude-plugin/plugin.json", "{bad json")
+    assert codex_errors() == [
+        f"{MEMORY}/.claude-plugin/plugin.json: missing or not valid JSON (ADR 0036)"
+    ]
+
+
+def test_codex_catalog_not_valid_json(mini_repo):
+    put(mini_repo, ".agents/plugins/marketplace.json", "{bad json")
+    [error] = codex_errors()
+    assert "without a 'plugins' list" in error
+
+
+def test_codex_catalog_entry_not_an_object(mini_repo):
+    put(mini_repo, ".agents/plugins/marketplace.json", json.dumps({"plugins": ["x"]}))
+    [error] = codex_errors()
+    assert "plugin entry 'x' is not an object" in error
