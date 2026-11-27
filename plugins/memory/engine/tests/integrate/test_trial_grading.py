@@ -3,9 +3,11 @@ on canned snapshots of a store (relative path -> text)."""
 
 from __future__ import annotations
 
+import argparse
 import importlib.util
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -20,6 +22,7 @@ PART = f"{SYN}#structures"
 OTHER_PART = f"{SYN}#selection"
 FIRST, SECOND = "First fact.", "Second fact."
 MIN_APPEND_SEEDS = 15
+USAGE_EXIT = 2
 
 
 def _load() -> Any:
@@ -282,7 +285,56 @@ def test_an_audit_estimate_is_sized_from_the_listing_not_the_seed_file():
     assert (
         both["sessions"] == pytest.approx(0.1) and both["total"] == both["sessions"] + both["audit"]
     )
-    assert both["audit"] == trial.audit_estimate_usd(trial.AUDIT_PROMPT.format(items=listing))
+    prompt = trial.AUDIT_PROMPT.format(items=listing)
+    assert both["audit"] == trial.audit_estimate_usd(prompt, len(appended))
+
+
+def test_the_audit_is_estimated_as_one_request_not_two_sessions():
+    trial = _load()
+    prompt = "x" * 6_000  # 1,500 tokens
+    tokens = 1_500 + trial.AUDIT_OVERHEAD_TOKENS
+    haiku = (
+        tokens * trial.HAIKU_INPUT_PER_MTOK
+        + 17 * trial.AUDIT_OUTPUT_TOKENS_PER_SENTENCE * trial.HAIKU_OUTPUT_PER_MTOK
+    ) / trial.MILLION
+    got = trial.audit_estimate_usd(prompt, 17)
+    assert got == pytest.approx(haiku * trial.sonnet_price_ratio())
+    two_sessions = 2 * trial.session_usd(1_500, trial.sonnet_price_ratio())
+    assert got < two_sessions / 5  # the old shape came out near 1.5 USD for this prompt
+
+
+def test_a_sessions_overrun_is_not_masked_by_a_cheap_audit():
+    trial = _load()  # sessions bar 0.40, total bar 0.50
+    masked = trial.totals_verdict(_graded(cost=0.41), unbacked=0, audit_cost=0.0)
+    assert masked["verdict"] == "kill: cost"  # the total 0.41 is under 0.50
+    inside = trial.totals_verdict(_graded(cost=0.40), unbacked=0, audit_cost=0.1)
+    assert inside["verdict"] == "pass"
+
+
+AUDIT_OK = "1 | backed | stated\n2 | not backed | adds a claim\n3 | backed | follows\n"
+
+
+def test_parse_audit_reply_counts_the_not_backed_lines():
+    trial = _load()
+    assert trial.parse_audit_reply(AUDIT_OK + "\n", 3) == 1
+    assert trial.parse_audit_reply("", 0) == 0
+
+
+@pytest.mark.parametrize(
+    ("reply", "fragment"),
+    [
+        ("1 | backed | a\n3 | backed | c\n", "sentence 2"),
+        (AUDIT_OK + "4 | backed | d\n", "sentence 4"),
+        (AUDIT_OK + "2 | backed | again\n", "two audit lines for sentence 2"),
+        ("1 | backed | a\n2 | maybe | b\n3 | backed | c\n", "malformed"),
+        ("1 | backed |\n2 | backed | b\n3 | backed | c\n", "malformed"),
+        ("Item 1 is fine\n", "malformed"),
+    ],
+)
+def test_parse_audit_reply_refuses_anything_else(reply, fragment):
+    trial = _load()
+    with pytest.raises(ValueError, match=fragment):
+        trial.parse_audit_reply(reply, 3)
 
 
 def test_a_run_with_a_failed_session_is_void_not_a_pass():
@@ -412,9 +464,60 @@ def test_verdict_command_closes_a_saved_result(tmp_path, capsys):
     }
     path = tmp_path / "result.json"
     path.write_text(json.dumps(saved), encoding="utf-8")
-    assert trial.main(["verdict", str(path), "--unbacked", "0", "--audit-cost", "0.05"]) == 0
+    reply = tmp_path / "reply.txt"
+    reply.write_text("", encoding="utf-8")  # no sentence appended: nothing to audit
+    assert (
+        trial.main(["verdict", str(path), "--audit-reply", str(reply), "--audit-cost", "0.05"]) == 0
+    )
     assert capsys.readouterr().out.strip().endswith("verdict: pass")
-    assert trial.main(["verdict", str(path), "--unbacked", "3"]) == 0
+    saved["appended"] = [{"part": PART, "sentence": f"S{n}.", "notes": []} for n in (1, 2, 3)]
+    path.write_text(json.dumps(saved), encoding="utf-8")
+    reply.write_text("1 | not backed | a\n2 | not backed | b\n3 | backed | c\n", encoding="utf-8")
+    assert trial.main(["verdict", str(path), "--audit-reply", str(reply)]) == 0
     assert capsys.readouterr().out.strip().endswith("verdict: kill: unbacked sentences")
+    reply.write_text("1 | backed | a\n3 | backed | c\n", encoding="utf-8")
+    with pytest.raises(SystemExit) as exit_info:
+        trial.main(["verdict", str(path), "--audit-reply", str(reply)])
+    assert exit_info.value.code == USAGE_EXIT
+    assert "sentence 2" in capsys.readouterr().err
     with pytest.raises(SystemExit):
-        trial.main(["verdict", str(path)])  # --unbacked is required
+        trial.main(["verdict", str(path)])  # --audit-reply is required
+
+
+@pytest.mark.parametrize("bad", ["-1", "nan", "inf", "abc"])
+def test_number_arguments_must_be_finite_and_not_negative(tmp_path, bad):
+    trial = _load()
+    path = tmp_path / "result.json"
+    path.write_text("{}", encoding="utf-8")
+    reply = tmp_path / "reply.txt"
+    reply.write_text("", encoding="utf-8")
+    with pytest.raises(SystemExit) as exit_info:
+        trial.main(["verdict", str(path), "--audit-reply", str(reply), "--audit-cost", bad])
+    assert exit_info.value.code == USAGE_EXIT
+    with pytest.raises(SystemExit) as exit_info:
+        trial.main(["--budget", bad, "--claude", "x"])
+    assert exit_info.value.code == USAGE_EXIT
+
+
+def test_a_paid_run_that_raises_saves_what_it_spent_and_fails(tmp_path, monkeypatch, capsys):
+    trial = _load()
+    snaps = iter([{}])
+
+    def snap(_store):
+        try:
+            return next(snaps)
+        except StopIteration:
+            raise RuntimeError("boom") from None
+
+    ran = subprocess.CompletedProcess([], 0, "cost: 0.5 USD of 1.0; run r1\nfailed: alpha\n", "")
+    monkeypatch.setattr(trial, "build_store", lambda *_: tmp_path)
+    monkeypatch.setattr(trial, "dry_run", lambda *_: {"estimate": 0.1})
+    monkeypatch.setattr(trial, "snapshot", snap)
+    monkeypatch.setattr(trial, "_integrate", lambda *_a: ran)
+    args = argparse.Namespace(claude="x", budget=1.0, out=tmp_path / "out")
+    assert trial.cmd_paid(args) == 1
+    (saved,) = (tmp_path / "out").glob("integrate-failed-*.json")
+    data = json.loads(saved.read_text(encoding="utf-8"))
+    assert data["cost"] == pytest.approx(0.5) and data["failures"] == ["alpha"]
+    assert "boom" in data["error"] and data["run_id"] == "r1"
+    assert "boom" in capsys.readouterr().err

@@ -29,20 +29,27 @@ The `superseded` and `disputed` seeds are never offered to a session: the candid
    the references of every unit of every part, so a note cited in a part its label does not allow is wrong whatever
    its `part_of` says.
 3. Unbacked sentences: more than 1 appended sentence its note does not back. The harness writes the appended
-   sentences with their notes to `audit-prompt-*.md`; a Sonnet session answers `N | backed | reason` lines. That
-   session belongs to the paid run and is never started by this script; until it ran the criterion is `pending`:
-   `run_trial.py verdict RESULT_JSON --unbacked N [--audit-cost USD]` prints the table and the final verdict from a
-   saved result and the audit's answer (no model call).
+   sentences with their notes to `audit-prompt-*.md`; a Sonnet session answers one line per sentence, `N | backed |
+   reason` or `N | not backed | reason`. That session belongs to the paid run and is never started by this script
+   (the paid run only writes the prompt): the owner runs it, saves its reply to a file and runs
+   `run_trial.py verdict RESULT_JSON --audit-reply FILE [--audit-cost USD]`, which prints the table and the final
+   verdict (no model call). The reply is parsed strictly: exactly one line for every appended sentence, numbers
+   matching, verdict `backed` or `not backed`; anything else is a usage error (exit 2) naming the sentence or line
+   at fault, with no verdict. The unbacked count is the number of `not backed` lines. Until the reply is given the
+   criterion is `pending`.
 4. Another note changed: for every note the run did not integrate, any change to its body (compared with its line
    endings as on disk) or to a frontmatter field outside `ALLOWED_OTHER_FIELDS` (`updated`, `part_of_hash`, the
    re-stamp); any knowledge note the run created.
 5. Stale to current: a note stale before and current after without a change to its part.
 6. Undo: `mem-integrate --undo RUN` must return every file of the store byte for byte (the `.git` folder and the
    `.curation-log` files aside; `.gitignore` is compared).
-7. Cost: the run's sessions plus the audit above twice the estimate printed by `--dry-run` (two parts: the
-   `mem-integrate` sessions, and the Sonnet audit sized from the audit listing; and their sum). Until the audit cost is
-   known (`verdict --audit-cost USD`), the sessions alone are held to twice their own estimate and the criterion stays
-   `pending`.
+7. Cost, two bars, both must hold: the sessions' cost within twice the sessions estimate, and, once the audit cost is
+   known (`verdict --audit-cost USD`), the sessions plus the audit within twice the total estimate printed by
+   `--dry-run` (two parts and their sum). The sessions bar is checked at once: a sessions cost above twice its estimate
+   fails the criterion immediately and does not stay pending, and a cheap audit cannot mask it. With the sessions
+   inside their bar and no audit cost yet, the criterion is `pending`. The audit estimate is one request: the audit
+   prompt (about 4 characters a token) plus a fixed overhead for the system prompt in, one short line per appended
+   sentence out, at the Haiku constants of `run_trial.py` times the Sonnet/Haiku relative cost of `shared/models.toml`.
 
 Verdict: `void: <reason>` when a session failed (the failures are listed) or no note was integrated: the run proves
 nothing; else `kill: <criteria>` when one failed, `pending: <criteria>` when none failed but one is not known yet, else
@@ -54,7 +61,13 @@ nothing; else `kill: <criteria>` when one failed, `pending: <criteria>` when non
 |---|---|---|
 | `python3 plugins/memory/evals/integrate/run_trial.py --self-check` | the whole flow against a fake `claude` whose answers come from the labels (grading must come out clean), then once per wrong answer (a forbidden label attached; `append` where the label names a sentence; another sentence than the label's; a row for another part): the verdict must kill each | none |
 | `python3 plugins/memory/evals/integrate/run_trial.py --dry-run` | builds the seeded store, runs `mem-integrate run --dry-run`, prints syntheses, sessions, input size and the cost estimate in two parts with their sum (Haiku price constants in `run_trial.py`, dated; `shared/models.toml` holds only relative costs) | none |
-| `python3 plugins/memory/evals/integrate/run_trial.py --budget USD --claude PATH [--out DIR]` | the paid run: Haiku sessions through `mem-integrate run`, grade, undo and compare; writes the results JSON and the audit prompt under `target/mem-trials/integrate-results/`; removes its work folder and the session folders under the user's Claude projects folder | needs the owner's cap |
-| `python3 plugins/memory/evals/integrate/run_trial.py verdict RESULT_JSON --unbacked N [--audit-cost USD]` | the table and the final verdict of a saved result with the audit's answer | none |
+| `python3 plugins/memory/evals/integrate/run_trial.py --budget USD --claude PATH [--out DIR]` | the paid run: Haiku sessions through `mem-integrate run`, grade, undo and compare; writes the results JSON and the audit prompt under `target/mem-trials/integrate-results/`; if the run raises after sessions spent money, it saves the run record (cost, failures, output, exception text) as `integrate-failed-*.json` there and exits 1; removes its work folder and the session folders under the user's Claude projects folder | needs the owner's cap |
+| `python3 plugins/memory/evals/integrate/run_trial.py verdict RESULT_JSON --audit-reply FILE [--audit-cost USD]` | the table and the final verdict of a saved result with the audit session's reply (strict parse, see criterion 3) | none |
 
 Unit tests of the grading: `plugins/memory/engine/tests/integrate/test_trial_grading.py`.
+
+## What the self-check covers
+
+The self-check's four wrong answers all exercise the **wrong attachment** criterion (four different branches of it: a forbidden label attached, `append` against a sentence label, another sentence of the right part, a row for another part). The other criteria (seed size, append share, unbacked sentences, another note changed, stale to current, undo, both cost bars, void) are covered by the unit tests on canned data, not end to end.
+
+The `append` floor: the seed holds 17 `append` notes; the kill criterion needs at least 15 (`MIN_APPEND`), and `test_seed_keeps_its_label_counts` floors the seed at 16, so one note may go before the seed test fails.

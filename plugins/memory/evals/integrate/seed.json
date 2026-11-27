@@ -246,14 +246,14 @@
   },
   {
    "slug": "each-index-slows-writes",
-   "claim": "Adding an index makes every insert and update slower, since the index has to be updated too.",
+   "claim": "Each index slows inserts and updates down, since it has to be kept in step with the table.",
    "label": "belongs-existing-sentence",
    "part": "s:db-indexing#maintenance",
    "sentence": 1
   },
   {
    "slug": "first-column-rule",
-   "claim": "Only queries that constrain the first column of a composite index can use it.",
+   "claim": "The leftmost column of a composite index determines which queries are able to use it.",
    "label": "belongs-existing-sentence",
    "part": "s:db-indexing#selection",
    "sentence": 3

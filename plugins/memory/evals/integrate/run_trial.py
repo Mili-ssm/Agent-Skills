@@ -14,13 +14,14 @@ Labels (fixed by the commit that adds `seed.json`, before any paid run): `append
 `on-topic-no-fit`, `duplicate-of-existing`, `superseded`, `disputed`. See README.md for the kill criteria.
 
 Usage: run_trial.py --self-check | --dry-run | --budget USD --claude PATH [--out DIR]
-       run_trial.py verdict RESULT_JSON --unbacked N [--audit-cost USD]
+       run_trial.py verdict RESULT_JSON --audit-reply FILE [--audit-cost USD]
 The paid run needs the owner's cap (`--budget`) and is never started by `--self-check` or `--dry-run`."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import posixpath
 import re
@@ -68,6 +69,8 @@ SESSION_OUTPUT_TOKENS = 2_000
 CHARS_PER_TOKEN = 4
 MILLION = 1_000_000
 SESSIONS_PER_SYNTHESIS = 2
+AUDIT_OVERHEAD_TOKENS = 2_000  # the audit request's system prompt, on top of its prompt
+AUDIT_OUTPUT_TOKENS_PER_SENTENCE = 40  # one short `N | backed | reason` line per appended sentence
 
 FAKE_SESSION_COST = 0.001
 FAKE = """#!/usr/bin/env python3
@@ -355,19 +358,19 @@ def _criterion(name: str, count: object, ok: bool | None) -> dict:
 
 
 def _cost_criterion(graded: dict, audit_cost: float | None) -> dict:
-    """The cost bar: twice the estimate. The run's total (sessions plus audit) against twice the sum of both
-    estimates once the audit cost is known; before, the sessions alone against twice their own estimate (it can fail
-    but not pass: the bar is not closed)."""
+    """The cost bar, two bars: the sessions within twice their estimate (checked as soon as the run is graded, so a
+    sessions overrun fails at once and a cheap audit cannot mask it), and, once the audit cost is known, the total
+    within twice the total estimate. Either bar passed fails the criterion; before the audit cost it can fail but not
+    pass."""
     cost, estimate = graded["cost"], graded.get("estimate")
     if estimate is None:
         return _criterion("cost", round(cost, 4), None)
+    sessions_ok = cost <= COST_FACTOR * estimate["sessions"]
     if audit_cost is None:
-        within = cost <= COST_FACTOR * estimate["sessions"]
-        return _criterion("cost", round(cost, 4), False if not within else None)
+        return _criterion("cost", round(cost, 4), None if sessions_ok else False)
     total = cost + audit_cost
-    return _criterion(
-        "cost", round(total, 4), total <= COST_FACTOR * (estimate["sessions"] + estimate["audit"])
-    )
+    total_ok = total <= COST_FACTOR * (estimate["sessions"] + estimate["audit"])
+    return _criterion("cost", round(total, 4), sessions_ok and total_ok)
 
 
 def _void_reason(graded: dict) -> str | None:
@@ -460,6 +463,34 @@ def expected_listing(seed: dict) -> str:
     )
 
 
+AUDIT_LINE = re.compile(r"(\d+) \| (backed|not backed) \| (\S.*)")
+
+
+def _audit_line(raw: str, sentences: int, seen: dict[int, str]) -> None:
+    found = AUDIT_LINE.fullmatch(raw.strip())
+    if not found:
+        raise ValueError(f"malformed audit line (want `N | backed | reason`): {raw.strip()!r}")
+    n = int(found[1])
+    if not 1 <= n <= sentences:
+        raise ValueError(f"audit line for sentence {n}, but {sentences} were appended")
+    if n in seen:
+        raise ValueError(f"two audit lines for sentence {n}")
+    seen[n] = found[2]
+
+
+def parse_audit_reply(text: str, sentences: int) -> int:
+    """The number of `not backed` lines of an audit reply. Strict: one `N | backed | reason` or `N | not backed |
+    reason` line for each of the `sentences` appended sentences, numbers matching; anything else raises ValueError
+    naming the sentence or the line at fault (blank lines are ignored)."""
+    seen: dict[int, str] = {}
+    for raw in filter(str.strip, text.splitlines()):
+        _audit_line(raw, sentences, seen)
+    missing = [str(n) for n in range(1, sentences + 1) if n not in seen]
+    if missing:
+        raise ValueError(f"no audit line for sentence {', '.join(missing)}")
+    return sum(v == "not backed" for v in seen.values())
+
+
 def audit_prompt(graded: dict, after: dict[str, str]) -> str:
     return AUDIT_PROMPT.format(items=audit_listing(graded, after))
 
@@ -487,14 +518,20 @@ def sonnet_price_ratio() -> float:
     return cost["sonnet"] / cost["haiku"]
 
 
-def audit_estimate_usd(prompt: str) -> float:
-    return session_usd(len(prompt) // CHARS_PER_TOKEN, sonnet_price_ratio())
+def audit_estimate_usd(prompt: str, sentences: int) -> float:
+    """The audit is one request, not two sessions: the input is the prompt plus a fixed overhead, the output one short
+    line per appended sentence; Haiku's rates times the Sonnet/Haiku relative cost."""
+    tokens = len(prompt) // CHARS_PER_TOKEN + AUDIT_OVERHEAD_TOKENS
+    reads = tokens * HAIKU_INPUT_PER_MTOK
+    writes = sentences * AUDIT_OUTPUT_TOKENS_PER_SENTENCE * HAIKU_OUTPUT_PER_MTOK
+    return sonnet_price_ratio() * (reads + writes) / MILLION
 
 
 def estimates(seed: dict, sessions: float) -> dict[str, float]:
     """The cost estimate in two parts: the `mem-integrate` sessions and the Sonnet audit (sized from the audit
     listing), with their sum."""
-    audit = audit_estimate_usd(AUDIT_PROMPT.format(items=expected_listing(seed)))
+    listing = expected_listing(seed)
+    audit = audit_estimate_usd(AUDIT_PROMPT.format(items=listing), listing.count("### Item "))
     return {"sessions": sessions, "audit": audit, "total": sessions + audit}
 
 
@@ -650,9 +687,15 @@ def dry_run(env: dict, store: Path) -> dict:
 RUN_COST = re.compile(r"^cost: ([\d.]+) USD of [\d.]+; run (\S+)", re.MULTILINE)
 
 
-def run_integrate(env: dict, store: Path, claude: str, budget: float) -> dict:
+def run_integrate(env: dict, store: Path, claude: str, budget: float, spent: dict) -> dict:
+    """The paid run. `spent` receives what is known as soon as the run returns (output, cost, failures), so a later
+    exception cannot lose it."""
     found = _integrate(env, store, "run", "--claude", claude, "--budget", f"{budget:.4f}")
     cost = RUN_COST.search(found.stdout)
+    spent["output"] = found.stdout + found.stderr
+    spent["failures"] = re.findall(r"(?m)^failed: (.*)$", found.stdout)
+    if cost:
+        spent["cost"], spent["run_id"] = float(cost.group(1)), cost.group(2)
     assert found.returncode == 0 and cost, f"mem-integrate run: {found.stdout}{found.stderr}"
     return {
         "cost": float(cost.group(1)),
@@ -665,6 +708,14 @@ def undo_differences(before: dict[str, bytes], after: dict[str, bytes]) -> list[
     return sorted(k for k in before.keys() | after.keys() if before.get(k) != after.get(k))
 
 
+class TrialFailedError(Exception):
+    """A paid run raised after it may have spent money: `spent` is what the run record knew by then."""
+
+    def __init__(self, spent: dict, cause: BaseException) -> None:
+        super().__init__(f"{type(cause).__name__}: {cause}")
+        self.spent = spent
+
+
 class Trial(NamedTuple):
     graded: dict
     verdict: dict
@@ -672,11 +723,10 @@ class Trial(NamedTuple):
     after: dict[str, str]
 
 
-def trial(seed: dict, store: Path, env: dict, claude: str, budget: float) -> Trial:
-    """The flow on a built store: dry run, run, grade, undo and compare."""
+def _flow(seed: dict, store: Path, env: dict, call: tuple[str, float], spent: dict) -> Trial:
     dry = dry_run(env, store)
     before_text, before_bytes = snapshot(store), file_bytes(store)
-    run = run_integrate(env, store, claude, budget)
+    run = run_integrate(env, store, *call, spent)
     after_text = snapshot(store)
     undone = _integrate(env, store, "--undo", run["run_id"])
     differences = undo_differences(before_bytes, file_bytes(store))
@@ -689,6 +739,16 @@ def trial(seed: dict, store: Path, env: dict, claude: str, budget: float) -> Tri
     graded = grade(before_text, after_text, seed, record)
     graded["undo_differences"] = differences
     return Trial(graded, totals_verdict(graded), {**run, "dry": dry}, after_text)
+
+
+def trial(seed: dict, store: Path, env: dict, claude: str, budget: float) -> Trial:
+    """The flow on a built store: dry run, run, grade, undo and compare. Any exception leaves as
+    `TrialFailedError` carrying what the run had spent."""
+    spent: dict = {}
+    try:
+        return _flow(seed, store, env, (claude, budget), spent)
+    except Exception as exc:
+        raise TrialFailedError(spent, exc) from exc
 
 
 # --- report -----------------------------------------------------------------------------------------------------
@@ -760,7 +820,9 @@ def cmd_dry_run() -> int:
         f"USD per million input/output tokens, list price read {PRICE_DATE}; models.toml holds no prices)"
     )
     print(
-        f"estimate, Sonnet audit (paid, not run here; sized from the audit listing): {estimate['audit']:.3f} USD"
+        f"estimate, Sonnet audit (one request, paid, not run here; its prompt of the audit listing plus "
+        f"{AUDIT_OVERHEAD_TOKENS} tokens overhead in, {AUDIT_OUTPUT_TOKENS_PER_SENTENCE} tokens a sentence out, "
+        f"Haiku rates times the Sonnet/Haiku relative cost): {estimate['audit']:.3f} USD"
     )
     print(
         f"estimate, total: {estimate['total']:.3f} USD; kill above {COST_FACTOR * estimate['total']:.3f} "
@@ -773,22 +835,48 @@ def cmd_dry_run() -> int:
     return 0
 
 
+def _amount(text: str) -> float:
+    """An argparse type: a finite number of USD, not negative."""
+    value = float(text)
+    if not math.isfinite(value) or value < 0:
+        raise argparse.ArgumentTypeError(f"{text!r} is not a finite, non-negative number")
+    return value
+
+
 def cmd_verdict(argv: list[str]) -> int:
-    """`verdict RESULT_JSON --unbacked N [--audit-cost USD]`: the table and the final verdict of a saved result, with
-    the audit's answer; no model call."""
+    """`verdict RESULT_JSON --audit-reply FILE [--audit-cost USD]`: the table and the final verdict of a saved result,
+    with the audit session's reply; no model call."""
     parser = argparse.ArgumentParser(prog="run_trial.py verdict", description=cmd_verdict.__doc__)
     parser.add_argument("result", type=Path, help="the results JSON a paid run saved")
     parser.add_argument(
-        "--unbacked", type=int, required=True, help="appended sentences the audit found not backed"
+        "--audit-reply",
+        type=Path,
+        required=True,
+        help="file with the audit session's reply: one `N | backed | reason` line per appended sentence",
     )
     parser.add_argument(
-        "--audit-cost", type=float, help="the audit session's cost in USD; closes the cost bar"
+        "--audit-cost", type=_amount, help="the audit session's cost in USD; closes the cost bar"
     )
     args = parser.parse_args(argv)
     data = json.loads(args.result.read_text(encoding="utf-8"))
-    verdict = totals_verdict(data, args.unbacked, args.audit_cost)
+    try:
+        unbacked = parse_audit_reply(
+            args.audit_reply.read_text(encoding="utf-8"), len(data["appended"])
+        )
+    except (ValueError, OSError) as error:
+        parser.error(f"--audit-reply {args.audit_reply}: {error}")
+    verdict = totals_verdict(data, unbacked, args.audit_cost)
     print(table(Trial(data, verdict, data["run"], {})))
     return 0
+
+
+def save_failure(failed: TrialFailedError, out: Path) -> Path:
+    """What a raising paid run knew (cost, failures, output, the exception text), kept before the work folder goes."""
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / f"integrate-failed-{time.strftime('%Y-%m-%dT%H-%M-%S')}.json"
+    data = {"error": str(failed), **failed.spent}
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
+    return path
 
 
 def cmd_paid(args: argparse.Namespace) -> int:
@@ -799,6 +887,12 @@ def cmd_paid(args: argparse.Namespace) -> int:
         result = trial(seed, build_store(work, env, seed), env, args.claude, args.budget)
         print(table(result))
         print(f"results: {save(result, args.out)}")
+    except TrialFailedError as failed:
+        print(
+            f"the paid run raised: {failed}\nrecord: {save_failure(failed, args.out)}",
+            file=sys.stderr,
+        )
+        return 1
     finally:
         trial_env.clean(
             work
@@ -892,7 +986,7 @@ def main(argv: list[str]) -> int:
         action="store_true",
         help="build the store, print sessions, input size, estimate",
     )
-    parser.add_argument("--budget", type=float, help="USD for the paid run (the owner's cap)")
+    parser.add_argument("--budget", type=_amount, help="USD for the paid run (the owner's cap)")
     parser.add_argument("--claude", help="the claude binary of the paid run")
     parser.add_argument(
         "--out", type=Path, default=OUT_DEFAULT, help="results folder (default under target/)"
