@@ -20,7 +20,7 @@ from session import handoff
 from session import notices as session_notices
 from settle import state as settle_state
 
-from commands import common, curate
+from commands import common, curate, install
 
 if TYPE_CHECKING:
     import argparse
@@ -521,7 +521,7 @@ def _session_text(args: argparse.Namespace, data: dict[str, Any], stats: dict[st
 
 
 def cmd_session_index(args: argparse.Namespace) -> int:
-    """Never fails: the rules matter most when nothing is configured yet. Writes only the hook log, with --hook,
+    """Never fails: the rules matter most when nothing is configured yet. Writes only the hook log and the plugin-root record, with --hook,
     and the day's due-note count (session_notices.DUE_CACHE_NAME)."""
     started = time.monotonic()
     data = _hook_input() if args.hook else {}
@@ -532,6 +532,14 @@ def cmd_session_index(args: argparse.Namespace) -> int:
         logger.debug("building the session start text failed", exc_info=True)
         text = _INDEX_RULES_CODEX if _host() == "codex" else _INDEX_RULES
         stats.clear()
+    if args.hook:
+        install.record_root()
+    if _host() == "codex" and install.launcher_missing():
+        root = install.plugin_root()
+        text += (
+            f"\nmemory: mem is not installed as a command; run it as {root}/bin/mem, "
+            f"or install it once: {root}/bin/mem install-command"
+        )
     print(text)
     if args.hook:
         source = data.get("source")

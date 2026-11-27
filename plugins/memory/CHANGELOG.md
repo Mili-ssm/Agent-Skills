@@ -7,6 +7,7 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 ### Added
 
 - Codex can load the plugin from the same folder (`.codex-plugin/`): it opens sessions with the memory index and gives subagents the memory line, without the Claude-only parts (auto memory, `memory:*` subagents). Install and trust steps follow with the README.
+- `mem install-command` puts a `mem` launcher in `~/.local/bin` (or `--bin-dir`), so Claude, Codex and your terminal all call plain `mem`; it follows the plugin copy the last session recorded, survives plugin updates, and `--remove` deletes it. It never overwrites a `mem` it did not write.
 
 ## [0.16.1] - 2026-11-27
 
