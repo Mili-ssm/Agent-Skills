@@ -4,6 +4,8 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-11-27
+
 ### Changed
 
 - Memory agents cap their final report in words through one shared rule: `memory-curator` 300, `memory-synthesizer` 150 (was 20 lines), the others keep their caps; `Left out:` names what was cut. `memory-recorder` and `memory-status-checker` gain a stop rule.
