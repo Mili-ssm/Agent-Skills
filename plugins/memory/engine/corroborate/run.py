@@ -15,7 +15,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
 from capture import state as cs
-from core import headless, jobs
+from core import codex_pass, headless, jobs
+from core import runner as runners
 from memories import records
 from synthesize import pipeline as sp
 
@@ -193,6 +194,18 @@ class SessionLimits(NamedTuple):
     max_budget: float
 
 
+@dataclass
+class Spend:
+    """The runner of one run, resolved once, and the tokens its Codex sessions have used (Codex reports no money)."""
+
+    runner: str = "claude"
+    tokens: int = 0
+
+    @property
+    def spent_up(self) -> bool:
+        return self.runner == "codex" and codex_pass.over_cap(self.tokens)
+
+
 class AskJob(NamedTuple):
     """What `_ask` runs: the brief template, the text for the session, the template's key for that text and the
     output file name."""
@@ -201,6 +214,24 @@ class AskJob(NamedTuple):
     text: str
     text_key: str
     out_name: str
+    spend: Spend | None = None
+
+
+def session_spec(
+    claude: str, work: Path, brief: str, settings: Path, limits: SessionLimits
+) -> headless.Session:
+    model, max_budget = limits
+    return headless.Session(
+        claude=claude,
+        prompt=brief,
+        model=model,
+        effort="medium",
+        settings=settings,
+        tools=("Read", "Write"),
+        allowed=(f"Read(/{work}/**)", f"Write(/{work}/**)", f"Edit(/{work}/**)"),
+        disallowed=("Bash", "WebSearch", "WebFetch"),
+        max_budget=max_budget,
+    )
 
 
 def session_cmd(
@@ -208,20 +239,7 @@ def session_cmd(
 ) -> list[str]:
     """One session. Only Read and Write exist (`--tools`, no MCP server) and the rules allow them inside `work`
     only; no Bash, no web, hooks disabled by `settings`."""
-    model, max_budget = limits
-    return headless.command(
-        headless.Session(
-            claude=claude,
-            prompt=brief,
-            model=model,
-            effort="medium",
-            settings=settings,
-            tools=("Read", "Write"),
-            allowed=(f"Read(/{work}/**)", f"Write(/{work}/**)", f"Edit(/{work}/**)"),
-            disallowed=("Bash", "WebSearch", "WebFetch"),
-            max_budget=max_budget,
-        )
-    )
+    return headless.command(session_spec(claude, work, brief, settings, limits))
 
 
 def run_session(cmd: list[str], work: Path) -> dict:
@@ -229,6 +247,23 @@ def run_session(cmd: list[str], work: Path) -> dict:
         cmd, cwd=work, env=headless.session_env(), timeout=SESSION_TIMEOUT, errors="replace"
     ).stdout
     return sp.parse(raw)
+
+
+def run_on(spend: Spend, work: Path, spec: headless.Session) -> dict:
+    """One session on the run's runner; the `sp.parse` dict, with `tokens` from Codex. Codex writes its output file
+    in `work`, which is its whole sandbox."""
+    if spend.runner == "codex":
+        done = codex_pass.ask(spec, work, writes=True, timeout=SESSION_TIMEOUT)
+        spend.tokens += done["tokens"]
+        return done
+    return run_session(headless.command(spec), work)
+
+
+def missing_codex(spend: Spend) -> str | None:
+    """Why a Codex run cannot start a session, or None (also for a Claude run)."""
+    if spend.runner == "codex" and runners.find_codex() is None:
+        return codex_pass.NO_CODEX
+    return None
 
 
 def read_object(path: Path) -> object:
@@ -543,6 +578,8 @@ def _blank_line() -> dict:
         "cases": 0,
         "skipped": None,
         "cost": 0.0,
+        "tokens": 0,
+        "runner": "claude",
         "failed": None,
         "ms": 0,
     }
@@ -561,6 +598,7 @@ class _Run:
     cdir: Path
     scratch: Path | None  # a dry run's folder, in place of a run folder
     line: dict = field(default_factory=_blank_line)
+    spend: Spend = field(default_factory=Spend)
     start: float = field(default_factory=time.time)
     run: Path | None = None
     logged: bool = False
@@ -647,25 +685,33 @@ def _start_run(ctx: _Run) -> Path:
 
 def _run_checked(ctx: _Run, work: Path, brief: str, model: str, stage: str) -> None:
     """One session of a stage ("propose" or "verify"): its cost goes to the line, a failed one stops the run."""
-    done = run_session(
-        session_cmd(
-            ctx.claude,
-            work,
-            brief,
-            work.parent / "settings.json",
-            SessionLimits(model, ctx.budget),
-        ),
+    doing = {"propose": "proposing", "verify": "verifying"}[stage]
+    if ctx.spend.spent_up:
+        raise StopError(
+            "token cap",
+            f"the {doing} session did not start: {ctx.spend.tokens} tokens reached the cap",
+        )
+    limits = SessionLimits(model, ctx.budget)
+    done = run_on(
+        ctx.spend,
         work,
+        session_spec(ctx.claude, work, brief, work.parent / "settings.json", limits),
     )
     ctx.line["cost"] += done["cost"] if done["has_result"] else 0.0
-    ctx.log(
-        f"{stage}: has_result={done['has_result']} error={done['error']} cost={done['cost']:.3f}"
+    ctx.line["tokens"] = ctx.spend.tokens
+    spent = (
+        f"tokens={done['tokens']}" if ctx.spend.runner == "codex" else f"cost={done['cost']:.3f}"
     )
+    ctx.log(f"{stage}: has_result={done['has_result']} error={done['error']} {spent}")
     if not done["has_result"] or done["error"]:
-        doing = {"propose": "proposing", "verify": "verifying"}[stage]
+        no_result = (
+            "ended without a result"
+            if ctx.spend.runner == "codex"
+            else "ended without a cost report"
+        )
         raise StopError(
             "session error",
-            f"the {doing} session ended without a cost report"
+            f"the {doing} session {no_result}"
             if not done["has_result"]
             else f"the {doing} session failed",
         )
@@ -710,8 +756,11 @@ def _judge_file(groups_file: str, lessons: list) -> _Judged:
 def _judge_sessions(
     ctx: _Run, root: Path, lessons: list, by_id: dict, refused_seen: dict
 ) -> _Judged:
-    if not ctx.claude:
+    ctx.spend.runner = ctx.line["runner"] = runners.resolve_runner(None)  # once per run
+    if ctx.spend.runner == "claude" and not ctx.claude:
         raise StopError("no claude", "no claude binary (--claude, CLAUDE_CODE_EXECPATH or PATH)")
+    if missing := missing_codex(ctx.spend):
+        raise StopError("no codex", missing)
     corroborate_state.write_private(root / "settings.json", json.dumps({"disableAllHooks": True}))
     proposal = _propose(ctx, root)
     incomplete = not (isinstance(proposal, dict) and isinstance(proposal.get("groups"), list))
@@ -950,7 +999,8 @@ def execute(
     dry_run: bool = False,
     out_file: str | None = None,
 ) -> dict:
-    """One run. The log line (counts only); a dry run writes nothing but `out_file`."""
+    """One run. The log line (counts only); a dry run writes nothing but `out_file`. The runner is the configured
+    one (`runner.resolve_runner`)."""
     data = corroborate_state.data_dir()
     scratch = Path(tempfile.mkdtemp(prefix="mem-corroborate-")) if dry_run else None
     ctx = _Run(
@@ -985,7 +1035,13 @@ def save_done(cdir: Path, line: dict, failure: str | None, dry_run: bool, log: s
     if dry_run:
         return
     now = time.time()
-    end: dict = {"state": "failed" if failure else "ok", "finished": now, "cost": line["cost"]}
+    end: dict = {
+        "state": "failed" if failure else "ok",
+        "finished": now,
+        "cost": line["cost"],
+        "tokens": line["tokens"],
+        "runner": line["runner"],
+    }
     if log:
         end["log"] = log
     if failure:
@@ -1019,19 +1075,28 @@ def _cell(text: object) -> str:
 
 
 def _ask(
-    claude: str, scratch: Path, name: str, limits: SessionLimits, job: AskJob
+    claude: str,
+    scratch: Path,
+    name: str,
+    limits: SessionLimits,
+    job: AskJob,
 ) -> tuple[object, float, bool]:
     """One session in its own folder: (the JSON it wrote or None, its cost, whether it ended with a result and no error).
-    Callers pass `claude`, `scratch` and `name` positionally (`name` stays third: a test wraps the call)."""
-    template, text, text_key, out_name = job
+    Callers pass `claude`, `scratch` and `name` positionally (`name` stays third: a test wraps the call). `job.spend`:
+    the run's runner and Codex tokens (the configured runner when None); a session that would start past the token
+    cap does not start and counts as failed."""
+    template, text, text_key, out_name, spend = job
+    spend = spend or Spend(runners.resolve_runner(None))
+    if spend.spent_up:
+        return None, 0.0, False
     work = scratch / name
     work.mkdir(mode=0o700)
     corroborate_state.write_private(work / "input.txt", text)
     out = work / out_name
     brief = template.format(**{text_key: work / "input.txt"}, out=out)
     try:
-        done = run_session(
-            session_cmd(claude, work, brief, scratch / "settings.json", limits), work
+        done = run_on(
+            spend, work, session_spec(claude, work, brief, scratch / "settings.json", limits)
         )
     except OSError:  # a binary that is missing or cannot run is a failed session
         return None, 0.0, False

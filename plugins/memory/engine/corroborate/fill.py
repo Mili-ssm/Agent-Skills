@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from core import jobs
+from core import runner as runners
 from memories import model, records, rules
 
 from corroborate import decide as corroborate_decide
@@ -37,13 +38,16 @@ def _scope(project: Path | None, names: dict) -> str:
     return "global" if project is None else names.get(project, str(project))
 
 
-def _dry_run_refusal(args) -> int | None:
+def _dry_run_refusal(args, spend: corroborate_run.Spend) -> int | None:
     """The exit code of a dry run that cannot start, or None."""
-    if not args.claude:
+    if spend.runner == "claude" and not args.claude:
         print(
             "mem-corroborate: no claude binary (--claude, CLAUDE_CODE_EXECPATH or PATH)",
             file=sys.stderr,
         )
+        return 1
+    if missing := corroborate_run.missing_codex(spend):
+        print(f"mem-corroborate: {missing}", file=sys.stderr)
         return 1
     folder = Path(args.out).expanduser().resolve().parent
     if not (folder.is_dir() and os.access(folder, os.W_OK | os.X_OK)):
@@ -61,7 +65,9 @@ def _dry_run_refusal(args) -> int | None:
     return None
 
 
-def _propose_in(args, scratch: Path, candidates: list) -> tuple[dict, list[str], float] | None:
+def _propose_in(
+    args, scratch: Path, candidates: list, spend: corroborate_run.Spend
+) -> tuple[dict, list[str], float] | None:
     """One writer session in `scratch`: (the kept items, the reasons for the dropped ones, the cost), or None when
     the session failed."""
     settings = scratch / "settings.json"
@@ -72,8 +78,8 @@ def _propose_in(args, scratch: Path, candidates: list) -> tuple[dict, list[str],
     out = work / "fill.json"
     brief = corroborate_run.FILL_BRIEF.format(lessons=work / "lessons.txt", out=out)
     limits = corroborate_run.SessionLimits(corroborate_run.PROPOSE_MODEL, args.budget)
-    done = corroborate_run.run_session(
-        corroborate_run.session_cmd(args.claude, work, brief, settings, limits), work
+    done = corroborate_run.run_on(
+        spend, work, corroborate_run.session_spec(args.claude or "", work, brief, settings, limits)
     )
     if not done["has_result"] or done["error"]:
         print("mem-corroborate: the session failed; nothing was written", file=sys.stderr)
@@ -84,10 +90,12 @@ def _propose_in(args, scratch: Path, candidates: list) -> tuple[dict, list[str],
     return kept, reasons, done["cost"]
 
 
-def _propose(args, candidates: list) -> tuple[dict, list[str], float] | None:
+def _propose(
+    args, candidates: list, spend: corroborate_run.Spend
+) -> tuple[dict, list[str], float] | None:
     scratch = Path(tempfile.mkdtemp(prefix="mem-corroborate-fill-"))
     try:
-        return _propose_in(args, scratch, candidates)
+        return _propose_in(args, scratch, candidates, spend)
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
 
@@ -113,21 +121,26 @@ def _dry_items(kept: dict, by_id: dict, where: dict, names: dict) -> list[dict]:
     return items
 
 
-def _write_dry_run(args, items: list[dict], asked: int, reasons: list[str], cost: float) -> None:
+def _write_dry_run(args, items: list[dict], asked: int, reasons: list[str], spent: str) -> None:
     to_edit = sum("problem" in i for i in items)
     corroborate_state.write_private(
         Path(args.out).expanduser(), json.dumps(items, ensure_ascii=False, indent=1) + "\n"
     )
     print(
         f"mem-corroborate: fill: {asked} lessons asked, {len(items) - to_edit} kept, {to_edit} to edit, {len(reasons)} dropped, "
-        f"cost {cost:.3f} USD; read {args.out}, edit or cut it, then run fill --items {args.out}"
+        f"{spent}; read {args.out}, edit or cut it, then run fill --items {args.out}"
     )
     for why in reasons:
         print(f"  not kept: {why}", file=sys.stderr)
 
 
 def fill_dry_run(args) -> int:
-    refused = _dry_run_refusal(args)
+    try:
+        spend = corroborate_run.Spend(getattr(args, "runner", None) or runners.resolve_runner(None))
+    except ValueError as exc:
+        print(f"mem-corroborate: {exc}", file=sys.stderr)
+        return 2
+    refused = _dry_run_refusal(args, spend)
     if refused is not None:
         return refused
     try:
@@ -141,12 +154,13 @@ def fill_dry_run(args) -> int:
     reasons: list[str] = []
     cost = 0.0
     if candidates:
-        proposed = _propose(args, candidates)
+        proposed = _propose(args, candidates, spend)
         if proposed is None:
             return 1
         kept, reasons, cost = proposed
     items = _dry_items(kept, dict(candidates), where, names)
-    _write_dry_run(args, items, len(candidates), reasons, cost)
+    spent = f"{spend.tokens} tokens (codex)" if spend.runner == "codex" else f"cost {cost:.3f} USD"
+    _write_dry_run(args, items, len(candidates), reasons, spent)
     return 0
 
 
@@ -384,7 +398,7 @@ def _fill_run_folder(cdir: Path) -> Path:
     return run
 
 
-def fill_auto(claude: str | None, budget: float) -> dict:
+def fill_auto(claude: str | None, budget: float, runner: str | None = None) -> dict:
     """Writes the short forms of the lessons that lack one, with nobody reading them first: a writer session, the
     code check (`short_problems`), a second session that checks the survivors against their claims, then `apply_fill`.
     Every doubt ends in not writing. A session with no usable answer is a failed session: no lesson is charged an
@@ -399,13 +413,15 @@ def fill_auto(claude: str | None, budget: float) -> dict:
         "to_triage": 0,
         "left": 0,
         "cost": 0.0,
+        "tokens": 0,
+        "runner": "claude",
         "stopped": None,
     }
     lock = jobs.take_run_lock(cdir)
     if lock is None:
         return {**result, "stopped": "a run is going"}
     try:
-        return _fill_locked(claude, budget, cdir, result)
+        return _fill_locked(claude, budget, cdir, result, runner)
     finally:
         os.close(lock)
 
@@ -432,6 +448,7 @@ class _Auto:
     names: dict
     gfolder: Path | None
     fingerprint: str
+    spend: corroborate_run.Spend = dataclasses.field(default_factory=corroborate_run.Spend)
 
     def save(self) -> None:
         jobs.write_json(self.cdir / ATTEMPTS_NAME, self.state)
@@ -507,9 +524,12 @@ def _writer_session(
         scratch,
         "write",
         limits,
-        corroborate_run.AskJob(corroborate_run.FILL_BRIEF, lines, "lessons", "fill.json"),
+        corroborate_run.AskJob(
+            corroborate_run.FILL_BRIEF, lines, "lessons", "fill.json", ctx.spend
+        ),
     )
     ctx.result["cost"] += cost
+    ctx.result["tokens"] = ctx.spend.tokens
     if not (ok and isinstance(payload, dict) and isinstance(payload.get("items"), list)):
         raise _SessionError("the writer session gave no usable answer")
     kept, _dropped_reasons = corroborate_decide.validate_fill(payload, list(ctx.lessons))
@@ -543,9 +563,12 @@ def _checker_session(
         scratch,
         "check",
         limits,
-        corroborate_run.AskJob(corroborate_run.CHECK_BRIEF, text, "pairs", "verdicts.json"),
+        corroborate_run.AskJob(
+            corroborate_run.CHECK_BRIEF, text, "pairs", "verdicts.json", ctx.spend
+        ),
     )
     ctx.result["cost"] += cost
+    ctx.result["tokens"] = ctx.spend.tokens
     checked = corroborate_decide.validate_check(payload, [i for i, _x in passed]) if ok else None
     if checked is None:
         raise _SessionError("the checker session gave no usable answer")
@@ -657,14 +680,27 @@ def _settle(ctx: _Auto, holds: list[tuple[str, str]], apply_failed: bool) -> Non
             ctx.result["left"] += 1
 
 
-def _fill_locked(claude: str | None, budget: float, cdir: Path, result: dict) -> dict:
+def _fill_runner(ctx: _Auto, claude: str | None, runner: str | None) -> str | None:
+    """Resolves the run's runner once into `ctx`; why the run cannot start (the `stopped` text), or None."""
+    try:
+        ctx.spend.runner = ctx.result["runner"] = runner or runners.resolve_runner(None)
+    except ValueError:
+        return "the runner setting is invalid"
+    if ctx.spend.runner == "claude":
+        return None if claude else "no claude binary"
+    return "no codex binary" if corroborate_run.missing_codex(ctx.spend) else None
+
+
+def _fill_locked(
+    claude: str | None, budget: float, cdir: Path, result: dict, runner: str | None = None
+) -> dict:
     ctx = _plan(cdir, result)
     if isinstance(ctx, dict):
         return ctx
-    if not claude:
-        return _finish(cdir, result, stopped="no claude binary")
+    if stopped := _fill_runner(ctx, claude, runner):
+        return _finish(cdir, result, stopped=stopped)
     try:
-        verdicts = _sessions(ctx, claude, budget)
+        verdicts = _sessions(ctx, claude or "", budget)
     except _SessionError as exc:
         return _failed_session(ctx, str(exc))
     items = _checked_items(ctx, verdicts)

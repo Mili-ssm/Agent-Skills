@@ -672,6 +672,8 @@ def test_fill_auto_writes_a_checked_short_form_marked_as_the_models(w, monkeypat
         "to_triage": 0,
         "left": 0,
         "cost": 0.06,
+        "tokens": 0,
+        "runner": "claude",
         "stopped": None,
     }
     assert calls(w) == SESSION_PAIR
