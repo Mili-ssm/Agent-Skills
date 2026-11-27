@@ -20,7 +20,7 @@ import re
 import sys
 import tempfile
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict, Unpack
 
@@ -309,6 +309,14 @@ CODEX = Target(
 TARGETS = (COPILOT, CODEX)
 # Plugins a catalog lists beside agent-skills, served from their source folder with no generated copy (ADR 0036).
 SOURCE_PLUGINS: dict[str, dict[str, str]] = {"codex": {"memory": "plugins/memory"}}
+# Where the Codex roles of a source plugin are generated: inside the plugin, because Codex's plugin cache holds only
+# that folder (the Claude plugin loads agents/*.md only, so these .toml files are inert for it).
+ROLES_DIR = "codex-agents"
+
+
+def role_dirs() -> list[str]:
+    """Folders of generated Codex roles inside source plugins."""
+    return [f"{folder}/{ROLES_DIR}" for folder in SOURCE_PLUGINS["codex"].values()]
 
 
 def catalog_plugins(target: Target) -> list[tuple[str, str]]:
@@ -342,6 +350,8 @@ class Sources:
     skills: dict[str, Doc]
     agents: dict[str, Doc]
     commands: dict[str, Doc]
+    # Agents of the `SOURCE_PLUGINS` plugins, keyed by plugin name: only Codex roles are generated from them.
+    source_agents: dict[str, dict[str, Doc]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -361,11 +371,15 @@ def body_of(text: str) -> str:
 
 
 def load_docs(
-    pattern: str, allowed: set[str], required: tuple[str, ...], errors: list[str]
+    pattern: str,
+    allowed: set[str],
+    required: tuple[str, ...],
+    errors: list[str],
+    base: Path | None = None,
 ) -> dict[str, Doc]:
-    """Read every Markdown source matching `pattern`; unknown or missing frontmatter fields are errors."""
+    """Read every Markdown source matching `pattern` under `base` (default: agent-skills); unknown or missing frontmatter fields are errors."""
     docs: dict[str, Doc] = {}
-    for path in sorted(PLUGIN.glob(pattern)):
+    for path in sorted((base or PLUGIN).glob(pattern)):
         rel = path.relative_to(ROOT)
         name = path.parent.name if path.name == "SKILL.md" else path.stem
         text = path.read_text(encoding="utf-8")
@@ -483,6 +497,23 @@ def _command_errors(commands: dict[str, Doc], skills: dict[str, Doc]) -> list[st
     return errors
 
 
+def _source_agents(errors: list[str]) -> dict[str, dict[str, Doc]]:
+    """The agents of each `SOURCE_PLUGINS` plugin, checked like the agent-skills ones (they preload no skill)."""
+    found: dict[str, dict[str, Doc]] = {}
+    for plugin, folder in SOURCE_PLUGINS["codex"].items():
+        docs = load_docs(
+            "agents/*.md",
+            AGENT_FIELDS,
+            ("name", "description", "tools", "model", "effort"),
+            errors,
+            ROOT / folder,
+        )
+        for doc in docs.values():
+            check_agent(doc, {}, errors)
+        found[plugin] = docs
+    return found
+
+
 def load_sources() -> tuple[Sources, list[str]]:
     """Read the plugin, marketplace, policy, skills, agents and commands, with every problem found."""
     plugin = json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
@@ -498,6 +529,7 @@ def load_sources() -> tuple[Sources, list[str]]:
     commands = load_docs("commands/*.md", COMMAND_FIELDS, ("description", "argument-hint"), errors)
     for doc in agents.values():
         check_agent(doc, skills, errors)
+    source_agents = _source_agents(errors)
     errors.extend(_command_errors(commands, skills))
     return Sources(
         plugin,
@@ -507,6 +539,7 @@ def load_sources() -> tuple[Sources, list[str]]:
         skills,
         agents,
         commands,
+        source_agents,
     ), errors
 
 
@@ -752,40 +785,46 @@ class Generator:
         return "\n\n".join(parts) + "\n"
 
     def agents_for(self, target: Target) -> None:
-        """One agent file per Claude agent: a Copilot .agent.md or a Codex role .toml."""
-        for name, doc in self.src.agents.items():
-            fm = doc.fm
-            description = self.t(fm["description"], target, f"agents/{name}.md:description")
-            instructions = self.instructions(doc, target)
-            if target is COPILOT:
-                model = q(COPILOT_MODELS[fm["model"]])
-                pairs = [
-                    ("name", q(name)),
-                    ("description", q(description)),
-                    ("tools", json.dumps(copilot_tools(fm))),
-                    ("model", model),
-                    ("reasoningEffort", q(fm["effort"])),
-                    (
-                        "include-custom-instructions",
-                        "false" if is_true(fm.get("omitClaudeMd")) else "true",
-                    ),
-                ]
-                dest = f"{target.dir}/com.github.copilot/agents/{name}.agent.md"
-                self.put_instruction(dest, f"{frontmatter(pairs)}\n{instructions}", target)
-            else:
-                model, effort = CODEX_PAIRS[fm["model"], fm["effort"]]
-                lines = [
-                    f"name = {q(name)}",
-                    f"description = {q(description)}",
-                    f"developer_instructions = {toml_multiline(instructions)}",
-                    f"model = {q(model)}",
-                    f"model_reasoning_effort = {q(effort)}",
-                ]
-                if not needs_codex_shell(fm):
-                    lines += ["", "[features]", "shell_tool = false"]
-                self.put_instruction(
-                    f"{target.dir}/agents/{name}.toml", "\n".join(lines) + "\n", target
-                )
+        """One agent file per Claude agent: a Copilot .agent.md or a Codex role .toml (also for `SOURCE_PLUGINS`)."""
+        for doc in self.src.agents.values():
+            self.agent_file(doc, target, target.dir, f"{target.dir}/agents")
+        if target is CODEX:
+            for plugin, folder in SOURCE_PLUGINS["codex"].items():
+                for doc in self.src.source_agents[plugin].values():
+                    self.agent_file(doc, target, folder, f"{folder}/{ROLES_DIR}")
+
+    def agent_file(self, doc: Doc, target: Target, folder: str, role_dir: str) -> None:
+        """One agent's file: a Copilot .agent.md under `folder`, a Codex role .toml in `role_dir`."""
+        name, fm = doc.name, doc.fm
+        description = self.t(fm["description"], target, f"agents/{name}.md:description")
+        instructions = self.instructions(doc, target)
+        if target is COPILOT:
+            model = q(COPILOT_MODELS[fm["model"]])
+            pairs = [
+                ("name", q(name)),
+                ("description", q(description)),
+                ("tools", json.dumps(copilot_tools(fm))),
+                ("model", model),
+                ("reasoningEffort", q(fm["effort"])),
+                (
+                    "include-custom-instructions",
+                    "false" if is_true(fm.get("omitClaudeMd")) else "true",
+                ),
+            ]
+            dest = f"{folder}/com.github.copilot/agents/{name}.agent.md"
+            self.put_instruction(dest, f"{frontmatter(pairs)}\n{instructions}", target)
+        else:
+            model, effort = CODEX_PAIRS[fm["model"], fm["effort"]]
+            lines = [
+                f"name = {q(name)}",
+                f"description = {q(description)}",
+                f"developer_instructions = {toml_multiline(instructions)}",
+                f"model = {q(model)}",
+                f"model_reasoning_effort = {q(effort)}",
+            ]
+            if not needs_codex_shell(fm):
+                lines += ["", "[features]", "shell_tool = false"]
+            self.put_instruction(f"{role_dir}/{name}.toml", "\n".join(lines) + "\n", target)
 
     def catalogs(self) -> None:
         """One marketplace file per tool: agent-skills, plus the source plugins of `SOURCE_PLUGINS`."""
@@ -936,6 +975,19 @@ def generate(src: Sources) -> tuple[dict[str, Blob], list[str]]:
 # --- writing and drift ------------------------------------------------------------------------
 
 
+def prune(base: Path, folder: str, files: dict[str, Blob]) -> int:
+    """Delete the files under `base/folder` that are not generated, then empty folders; return the files removed."""
+    removed = 0
+    root = base / folder
+    for path in sorted(root.rglob("*"), reverse=True) if root.is_dir() else []:
+        if path.is_file() and path.relative_to(base).as_posix() not in files:
+            path.unlink()
+            removed += 1
+        elif path.is_dir() and not any(path.iterdir()):
+            path.rmdir()
+    return removed
+
+
 def sync(files: dict[str, Blob], base: Path) -> tuple[int, int]:
     """Make `base` hold exactly `files` under ports/ and write the single files; return (written, removed)."""
     written = 0
@@ -951,14 +1003,7 @@ def sync(files: dict[str, Blob], base: Path) -> tuple[int, int]:
         path.write_bytes(blob.data)
         path.chmod(0o755 if blob.executable else 0o644)
         written += 1
-    removed = 0
-    ports = base / PORTS
-    for path in sorted(ports.rglob("*"), reverse=True) if ports.is_dir() else []:
-        if path.is_file() and path.relative_to(base).as_posix() not in files:
-            path.unlink()
-            removed += 1
-        elif path.is_dir() and not any(path.iterdir()):
-            path.rmdir()
+    removed = sum(prune(base, folder, files) for folder in (PORTS, *role_dirs()))
     return written, removed
 
 
@@ -978,7 +1023,8 @@ def drift(fresh: Path) -> list[str]:
             errors.append(f"{rel}: executable bit differs; run python3 scripts/port.py")
     errors.extend(
         f"{p.relative_to(ROOT).as_posix()}: extra file, not generated; run python3 scripts/port.py"
-        for p in sorted((ROOT / PORTS).rglob("*"))
+        for folder in (PORTS, *role_dirs())
+        for p in sorted((ROOT / folder).rglob("*"))
         if p.is_file() and p.relative_to(ROOT).as_posix() not in wanted
     )
     return errors
@@ -1174,9 +1220,9 @@ class Verifier:
         )
         self.common(check, doc, COPILOT, body)
 
-    def codex_agent(self, doc: Doc) -> None:
+    def codex_agent(self, doc: Doc, role_dir: str = f"{CODEX.dir}/agents") -> None:
         fm = doc.fm
-        rel = f"{CODEX.dir}/agents/{doc.name}.toml"
+        rel = f"{role_dir}/{doc.name}.toml"
         text = self.read(rel)
         if text is None:
             return
@@ -1366,10 +1412,17 @@ class Verifier:
                 "marketplace.json: Copilot would read it before its own catalog; delete it"
             )
 
+    def source_plugin_agents(self) -> None:
+        """The Codex roles generated from the agents of the `SOURCE_PLUGINS` plugins."""
+        for plugin, agents in self.src.source_agents.items():
+            for doc in agents.values():
+                self.codex_agent(doc, f"{SOURCE_PLUGINS['codex'][plugin]}/{ROLES_DIR}")
+
     def run(self) -> list[str]:
         for doc in self.src.agents.values():
             self.copilot_agent(doc)
             self.codex_agent(doc)
+        self.source_plugin_agents()
         for target in TARGETS:
             for doc in self.src.skills.values():
                 self.skill(doc, target)

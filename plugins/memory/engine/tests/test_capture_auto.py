@@ -321,6 +321,28 @@ def test_failure_leaves_a_line_and_keeps_offset(world):
     assert ack.returncode == 0 and capture_state.failure_line(world.data, time.time()) is None
 
 
+def test_no_claude_binary_is_a_skip_with_no_retry(world, monkeypatch):
+    monkeypatch.delenv("CLAUDE_CODE_EXECPATH", raising=False)
+    shims = world.tmp / "noclaude"  # git only: no claude on PATH
+    shims.mkdir()
+    (shims / "git").symlink_to(shutil.which("git"))
+    cmd = [*CAPTURE, "auto", "--trigger", "session-end"]
+    done = subprocess.run(
+        cmd,
+        input=hook(world),
+        env=env_of(world, extra={"PATH": str(shims)}),
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert done.returncode == 0
+    assert status(world)["state"] == "ok" and not status(world).get("failure")
+    assert capture_state.read_session(world.data, "abc") == {"offset": 0, "attempts": 0}
+    assert log_lines(world)[-1]["skipped"].startswith("no claude binary")
+    assert log_lines(world)[-1]["failed"] is None
+
+
 def test_second_failure_skips_the_window(world):
     assert auto(world, mode="badjson").returncode == 0
     assert auto(world, mode="badjson").returncode == 0

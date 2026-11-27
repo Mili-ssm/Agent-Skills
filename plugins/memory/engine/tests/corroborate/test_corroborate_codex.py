@@ -1,11 +1,15 @@
 """`mem-corroborate` (the run and the automatic fill) on the Codex runner (ADR 0037): a fake `codex` writes the output
 file the brief names and prints a recorded stream."""
 
+import argparse
 from pathlib import Path
 
 import codex_fake
 import pytest
+from corroborate import digest as corroborate_digest
 from corroborate import fill as corroborate_fill
+from corroborate import reword as corroborate_reword
+from corroborate import run as corroborate_run
 from corroborate_world import (
     globals_,
     group,
@@ -15,7 +19,9 @@ from corroborate_world import (
     status,
     two_projects,
     w,
+    worse_one,
 )
+from test_corroborate_digest import digest_world
 from test_corroborate_fill import answers, one_lesson
 
 __all__ = ["w"]  # re-exported: pytest finds the fixture in this module by its name
@@ -136,6 +142,20 @@ def test_fill_auto_token_cap_fails_the_second_session(w, codex, monkeypatch):
     codex.plan(STEP, STEP)
     result = corroborate_fill.fill_auto(str(w.fake), 0.25)
     assert len(codex.calls) == 1 and "checker" in result["stopped"] and result["written"] == 0
+    assert "token cap" in result["stopped"]
+
+
+def test_fill_auto_on_codex_with_a_binary_that_cannot_run_names_the_cause(w, codex, monkeypatch):
+    one_lesson(w)
+    answers(w, monkeypatch)
+
+    def cannot_run(*_args, **_kwargs):
+        raise FileNotFoundError("codex vanished")
+
+    monkeypatch.setattr(corroborate_run, "run_on", cannot_run)
+    result = corroborate_fill.fill_auto(str(w.fake), 0.25)
+    assert "writer session gave no usable answer" in result["stopped"]
+    assert "no codex binary" in result["stopped"] and result["written"] == 0
 
 
 def _staged_run(w, codex, *args, **env):
@@ -156,3 +176,79 @@ def test_the_plugin_option_alone_picks_codex(w, codex, monkeypatch):
     done = _staged_run(w, codex, MEM_RUNNER_OPTION="codex")
     assert done.returncode == 0, done.stderr
     assert status(w)["runner"] == "codex"
+
+
+def test_every_codex_prompt_ends_with_the_addendum_and_starts_with_the_brief(w, codex):
+    a, b = two_projects(w)
+    model(w, [group(a, b)])
+    codex.plan(STEP, STEP)
+    run(w)
+    assert len(codex.calls) == TWO_SESSIONS
+    for call, brief in zip(codex.calls, ("groups.json", "verdicts.json"), strict=True):
+        assert call["prompt"].endswith(corroborate_run.CODEX_IO_ADDENDUM)
+        assert f"{brief} as JSON" in call["prompt"]
+
+
+def test_the_claude_prompt_is_the_brief_alone(tmp_path, monkeypatch):
+    seen = []
+    monkeypatch.setattr(corroborate_run, "run_session", lambda cmd, _work: seen.append(cmd) or {})
+    spec = corroborate_run.session_spec(
+        "claude", tmp_path, "BRIEF", tmp_path / "s.json", corroborate_run.SessionLimits("m", 1.0)
+    )
+    corroborate_run.run_on(corroborate_run.Spend("claude"), tmp_path, spec, tmp_path / "out.json")
+    assert "BRIEF" in seen[0] and not any("Codex:" in part for part in seen[0])
+
+
+def test_a_codex_session_that_writes_no_output_file_fails_the_run(w, codex):
+    a, b = two_projects(w)
+    model(w, [group(a, b)])
+    codex.plan({"answer": "done", "tokens": TOKENS})
+    run(w)
+    assert status(w)["failure"]["reason"] == "session error" and len(codex.calls) == 1
+    logged = (next((w.cdir / "runs").iterdir()) / "log.txt").read_text()
+    assert "ended without a result: it wrote no groups.json" in logged
+    assert not globals_(w)
+
+
+NO_FILE = {"answer": "done", "tokens": TOKENS}
+
+
+def _addendum_ends_the_prompt(codex):
+    assert codex.calls
+    assert all(c["prompt"].endswith(corroborate_run.CODEX_IO_ADDENDUM) for c in codex.calls)
+
+
+def test_fill_auto_on_codex_with_no_output_file_names_the_file(w, codex, monkeypatch):
+    one_lesson(w)
+    answers(w, monkeypatch)
+    codex.plan(NO_FILE)
+    result = corroborate_fill.fill_auto(str(w.fake), 0.25)
+    _addendum_ends_the_prompt(codex)
+    assert "it wrote no fill.json" in result["stopped"] and result["written"] == 0
+
+
+def test_fill_by_hand_on_codex_with_no_output_file_names_the_file(w, codex, capsys):
+    one_lesson(w)
+    codex.plan(NO_FILE)
+    args = argparse.Namespace(
+        claude=None, runner="codex", budget=0.25, out=str(w.tmp / "items.json")
+    )
+    assert corroborate_fill.fill_dry_run(args) == 1
+    _addendum_ends_the_prompt(codex)
+    assert "it wrote no fill.json" in capsys.readouterr().err
+
+
+def test_digest_on_codex_with_no_output_file_names_the_file(w, codex):
+    digest_world(w)
+    codex.plan(NO_FILE)
+    result = corroborate_digest.digest_auto(str(w.fake), 0.25)
+    _addendum_ends_the_prompt(codex)
+    assert "it wrote no digest-write.json" in result["stopped"]
+
+
+def test_reword_on_codex_with_no_output_file_names_the_file(w, codex):
+    worse_one(w)
+    codex.plan(NO_FILE)
+    result = corroborate_reword.reword_auto(str(w.fake), 0.25)
+    _addendum_ends_the_prompt(codex)
+    assert "it wrote no reword.json" in result["stopped"]

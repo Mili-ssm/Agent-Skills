@@ -4,6 +4,21 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-11-27
+
+### Added
+
+- Capture reads Codex session files too (ADR 0038); it still runs its model pass on Claude.
+- On Codex, plugin options are read from one file per option under `~/.config/agent-memory/` (first line; `$XDG_CONFIG_HOME` honoured), because Codex sets no plugin option variables; a set variable wins (ADR 0038).
+- The five `memory-*` subagents are generated as Codex roles (`codex-agents/*.toml` inside the plugin, from `scripts/port.py`); copy them to `~/.codex/agents/` (README, Codex step 5). The synthesizer finds its skill in Codex's plugin cache there (ADR 0038).
+- On Codex, the `SessionEnd` and `PreCompact` hooks start capture and the store history commit, as on Claude (observed in the Codex CLI; in the VS Code extension the session start sweep covers sessions without `SessionEnd`); re-trust all the plugin's hooks after updating, or none runs (ADR 0038).
+- `mem install-command` also installs `mem-research` and `mem-synthesize` launchers, which the Codex roles call; each file is handled on its own and a file that is not ours stays untouched. Re-run it once after updating.
+
+### Fixed
+
+- Capture skips quietly, with no retry and no failure line, when no `claude` binary is found (a Codex-only machine); the corroboration passes now say why a session did not start (token cap, missing `codex` binary).
+- Corroborate on Codex now reads and writes its files (it used to finish `ok` having done nothing), and a Codex session that leaves no output file now fails the run and names the file.
+
 ## [0.18.0] - 2026-11-27
 
 ### Added

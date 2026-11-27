@@ -254,6 +254,8 @@ def _check_reasons(payload: object) -> dict[str, str]:
 class _RewordPass:
     """One run of the step past the lock: the candidates, the sessions, the edits, the state and the sheet."""
 
+    writer_why = ""  # why the writer session failed (`_ask`), for the stop text
+
     def __init__(
         self, params: _Params, cdir: Path, result: dict, state: dict, world: _World
     ) -> None:
@@ -333,7 +335,9 @@ class _RewordPass:
         )
         proposed = self._ask_writer(claude, scratch)
         if proposed is None:
-            return _Sessions({}, set(), {}, "the writer session gave no usable answer")
+            return _Sessions(
+                {}, set(), {}, f"the writer session gave no usable answer{self.writer_why}"
+            )
         kept, _refused = corroborate_decide.reword_survivors(proposed, self.candidates)
         if not kept:
             return _Sessions(proposed, set(), {})
@@ -348,7 +352,8 @@ class _RewordPass:
             REWORD_WRITER_OUT,
             self.spend,
         )
-        payload, cost, ok = corroborate_run._ask(claude, scratch, "write", limits, job)
+        payload, cost, ok, why = corroborate_run._ask(claude, scratch, "write", limits, job)
+        self.writer_why = why
         self.result["cost"] += cost
         try:
             return corroborate_decide.validate_reword(payload, self.candidates) if ok else None
@@ -363,13 +368,13 @@ class _RewordPass:
         job = corroborate_run.AskJob(
             corroborate_run.CHECK_BRIEF, text, "pairs", REWORD_CHECK_OUT, self.spend
         )
-        payload, cost, ok = corroborate_run._ask(claude, scratch, "check", limits, job)
+        payload, cost, ok, why = corroborate_run._ask(claude, scratch, "check", limits, job)
         self.result["cost"] += cost
         checked = (
             corroborate_decide.validate_check(payload, [i for i, _m, _s in kept]) if ok else None
         )
         if checked is None:
-            return _Sessions({}, set(), {}, "the checker session gave no usable answer")
+            return _Sessions({}, set(), {}, f"the checker session gave no usable answer{why}")
         accepted = {i for i, faithful in checked.items() if faithful}
         return _Sessions(proposed, accepted, _check_reasons(payload))
 

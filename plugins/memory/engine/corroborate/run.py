@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import tempfile
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -249,14 +249,28 @@ def run_session(cmd: list[str], work: Path) -> dict:
     return sp.parse(raw)
 
 
-def run_on(spend: Spend, work: Path, spec: headless.Session) -> dict:
+CODEX_IO_ADDENDUM = (
+    "Codex: read the input file and write the output file named above in the current folder with your shell; "
+    "run no other command, and use no tool beyond that. Then end with the one-word final message `done`."
+)
+
+
+def run_on(spend: Spend, work: Path, spec: headless.Session, out: Path | None = None) -> dict:
     """One session on the run's runner; the `sp.parse` dict, with `tokens` from Codex. Codex writes its output file
-    in `work`, which is its whole sandbox."""
+    `out` in `work`, which is its whole sandbox; a Codex session that leaves no `out` has failed."""
     if spend.runner == "codex":
+        spec = replace(spec, prompt=f"{spec.prompt}\n\n{CODEX_IO_ADDENDUM}")
         done = codex_pass.ask(spec, work, writes=True, timeout=SESSION_TIMEOUT)
         spend.tokens += done["tokens"]
+        if out is not None and done["has_result"] and not out.is_file():
+            done |= {"has_result": False, "error": True, "failure": f"it wrote no {out.name}"}
         return done
     return run_session(headless.command(spec), work)
+
+
+def because(done: dict) -> str:
+    """`: <why>` for a session that failed with a reason (a Codex session that wrote no output file), else ''."""
+    return f": {done['failure']}" if done.get("failure") else ""
 
 
 def missing_codex(spend: Spend) -> str | None:
@@ -685,7 +699,10 @@ def _start_run(ctx: _Run) -> Path:
 
 def _run_checked(ctx: _Run, work: Path, brief: str, model: str, stage: str) -> None:
     """One session of a stage ("propose" or "verify"): its cost goes to the line, a failed one stops the run."""
-    doing = {"propose": "proposing", "verify": "verifying"}[stage]
+    doing, out_name = {
+        "propose": ("proposing", "groups.json"),
+        "verify": ("verifying", "verdicts.json"),
+    }[stage]
     if ctx.spend.spent_up:
         raise StopError(
             "token cap",
@@ -696,6 +713,7 @@ def _run_checked(ctx: _Run, work: Path, brief: str, model: str, stage: str) -> N
         ctx.spend,
         work,
         session_spec(ctx.claude, work, brief, work.parent / "settings.json", limits),
+        work / out_name,
     )
     ctx.line["cost"] += done["cost"] if done["has_result"] else 0.0
     ctx.line["tokens"] = ctx.spend.tokens
@@ -1091,15 +1109,16 @@ def _ask(
     name: str,
     limits: SessionLimits,
     job: AskJob,
-) -> tuple[object, float, bool]:
-    """One session in its own folder: (the JSON it wrote or None, its cost, whether it ended with a result and no error).
+) -> tuple[object, float, bool, str]:
+    """One session in its own folder: (the JSON it wrote or None, its cost, whether it ended with a result and no error,
+    why it failed: ': <reason>' or '' when it gave none).
     Callers pass `claude`, `scratch` and `name` positionally (`name` stays third: a test wraps the call). `job.spend`:
     the run's runner and Codex tokens (the configured runner when None); a session that would start past the token
     cap does not start and counts as failed."""
     template, text, text_key, out_name, spend = job
     spend = spend or Spend(runners.resolve_runner(None))
     if spend.spent_up:
-        return None, 0.0, False
+        return None, 0.0, False, f": {spend.tokens} tokens reached the token cap"
     work = scratch / name
     work.mkdir(mode=0o700)
     corroborate_state.write_private(work / "input.txt", text)
@@ -1107,10 +1126,13 @@ def _ask(
     brief = template.format(**{text_key: work / "input.txt"}, out=out)
     try:
         done = run_on(
-            spend, work, session_spec(claude, work, brief, scratch / "settings.json", limits)
+            spend,
+            work,
+            session_spec(claude, work, brief, scratch / "settings.json", limits),
+            out,
         )
-    except OSError:  # a binary that is missing or cannot run is a failed session
-        return None, 0.0, False
+    except OSError as exc:  # a binary that is missing or cannot run is a failed session
+        return None, 0.0, False, f": {codex_pass.NO_CODEX if spend.runner == 'codex' else exc}"
     cost = done["cost"] if done["has_result"] else 0.0
     ok = done["has_result"] and not done["error"]
-    return (read_object(out) if ok else None), cost, ok
+    return (read_object(out) if ok else None), cost, ok, because(done)

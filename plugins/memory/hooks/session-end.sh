@@ -4,6 +4,7 @@
 # must never disturb the end of a session. mem logs the call in the hook log (hook "session-end", ms). With the plugin
 # option auto_curation it also starts the background curation run (end of this script).
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || here=""
+[ "${MEM_HOST:-}" = codex ] && [ -n "$here" ] && { . "$here/codex-options.sh" 2>/dev/null; type codex_options >/dev/null 2>&1 && codex_options; }   # Codex: options from config files (ADR 0038)
 . "$here/store-env.sh" 2>/dev/null; type export_store_env >/dev/null 2>&1 && export_store_env
 [ -n "$here" ] && . "$here/find-claude.sh" 2>/dev/null
 type find_claude >/dev/null 2>&1 || find_claude() { :; }   # the helper is missing: no claude path, never a failure

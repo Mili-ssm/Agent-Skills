@@ -1,0 +1,20 @@
+{"timestamp": "2026-01-01T00:00:00.000Z", "type": "session_meta", "payload": {"id": "sid", "cwd": "/work/demo", "originator": "codex_exec", "source": "exec", "thread_source": "user"}}
+{"timestamp": "2026-01-01T00:00:00.000Z", "type": "response_item", "payload": {"type": "additional_tools", "id": "at", "role": "developer", "tools": [{}]}}
+{"timestamp": "2026-01-01T00:00:00.000Z", "type": "response_item", "payload": {"type": "message", "id": "msg_x", "role": "developer", "content": [{"type": "input_text", "text": "<skills_instructions> invented skill list"}]}}
+{"timestamp": "2026-01-01T00:00:00.000Z", "type": "response_item", "payload": {"type": "message", "id": "msg_x", "role": "user", "content": [{"type": "input_text", "text": "# AGENTS.md instructions for /work/demo\n\n<INSTRUCTIONS> invented rules </INSTRUCTIONS>"}]}}
+{"timestamp": "2026-01-01T00:00:00.000Z", "type": "response_item", "payload": {"type": "message", "id": "msg_x", "role": "user", "content": [{"type": "input_text", "text": "<environment_context>\n  <cwd>/work/demo</cwd>\n</environment_context>"}]}}
+{"timestamp": "2026-01-01T00:00:00.000Z", "type": "turn_context", "payload": {"cwd": "/work/demo", "model": "m"}}
+{"timestamp": "2026-01-01T00:00:00.000Z", "type": "event_msg", "payload": {"type": "task_started"}}
+{"timestamp": "2026-01-01T00:00:00.000Z", "type": "response_item", "payload": {"type": "message", "id": "msg_x", "role": "user", "content": [{"type": "input_text", "text": "please list the demo files"}]}}
+{"timestamp": "2026-01-01T00:00:00.000Z", "type": "event_msg", "payload": {"type": "user_message", "message": "please list the demo files"}}
+{"timestamp": "2026-01-01T00:00:00.000Z", "type": "token_usage_record", "payload": {"input": 1}}
+{"timestamp": "2026-01-01T00:00:00.000Z", "type": "event_msg", "payload": {"type": "token_count"}}
+{"timestamp": "2026-01-01T00:00:00.000Z", "type": "world_state", "payload": {"x": 1}}
+{"timestamp": "2026-01-01T00:00:00.000Z", "type": "response_item", "payload": {"type": "reasoning", "id": "rs", "summary": [], "encrypted_content": "x"}}
+{"timestamp": "2026-01-01T00:00:00.000Z", "type": "response_item", "payload": {"type": "message", "id": "msg_x", "role": "assistant", "content": [{"type": "output_text", "text": "Listing the files now."}]}}
+{"timestamp": "2026-01-01T00:00:00.000Z", "type": "response_item", "payload": {"type": "custom_tool_call", "id": "c1", "status": "completed", "call_id": "call_1", "name": "exec", "input": "await tools.exec_command({cmd: 'ls'})"}}
+{"timestamp": "2026-01-01T00:00:00.000Z", "type": "response_item", "payload": {"type": "custom_tool_call_output", "id": "o1", "call_id": "call_1", "output": [{"type": "input_text", "text": "Script failed\nWall time 0.1 seconds\nOutput:\n"}, {"type": "input_text", "text": "ls: cannot access demo: No such file"}]}}
+{"timestamp": "2026-01-01T00:00:00.000Z", "type": "response_item", "payload": {"type": "function_call", "id": "f1", "call_id": "call_2", "name": "shell", "arguments": "{\"command\": \"ls -a\"}"}}
+{"timestamp": "2026-01-01T00:00:00.000Z", "type": "response_item", "payload": {"type": "function_call_output", "call_id": "call_2", "output": [{"type": "input_text", "text": "Script completed\nWall time 0.1 seconds\nOutput:\n"}, {"type": "input_text", "text": "a b"}]}}
+{"timestamp": "2026-01-01T00:00:00.000Z", "type": "response_item", "payload": {"type": "message", "id": "msg_x", "role": "assistant", "content": [{"type": "output_text", "text": "Two files: a and b."}]}}
+{"timestamp": "2026-01-01T00:00:00.000Z", "type": "compacted", "payload": {"message": "", "replacement_history": []}}
