@@ -10,6 +10,7 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ### Changed
 
+- The integrate place step now tells the model each part's subject (its heading): a claim on that subject that no sentence states is appended, so integration places more notes whatever runner it uses.
 - The settle brief says a pair where one claim states anything the other lacks is never a `merge` (choose `nothing`), so a background settle run no longer drops a detail by merging.
 - Codex setup in the README: the VS Code extension never asks to trust hooks, so trust them once from the CLI's `/hooks` screen. Note for 0.17.0: Claude Code sessions also record the plugin root at session start (`~/.local/state/agent-memory/plugin-root`), which the `mem` launcher reads.
 

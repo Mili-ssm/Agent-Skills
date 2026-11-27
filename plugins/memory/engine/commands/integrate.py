@@ -275,6 +275,7 @@ def _candidate_parts(syn: document.Synthesis) -> list[dict[str, Any]]:
     return [
         {
             "section": s.handle,
+            "heading": s.heading,
             "fingerprint": units.fingerprint(s.text),
             "units": [{"n": u.n, "text": u.text} for u in units.units(s.text)[0]],
         }

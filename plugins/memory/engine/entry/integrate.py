@@ -260,7 +260,7 @@ def candidates(job: Job) -> list[dict] | None:
 
 
 def place_input(cand: dict) -> dict:
-    """What the place session reads: the notes with their claims, the parts with fingerprint and numbered units."""
+    """What the place session reads: the notes with their claims, the parts with subject, fingerprint and numbered units."""
     syn = cand["synthesis"]
     return {
         "synthesis": syn,
@@ -268,6 +268,7 @@ def place_input(cand: dict) -> dict:
         "parts": [
             {
                 "part": f"s:{syn}#{p['section']}",
+                "subject": p.get("heading") or p["section"],
                 "fingerprint": p["fingerprint"],
                 "units": p["units"],
             }

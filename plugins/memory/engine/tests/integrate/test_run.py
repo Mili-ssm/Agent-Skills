@@ -119,6 +119,7 @@ def test_place_input_lists_the_notes_offered(world):
     assert {n["note"] for n in data["notes"]} == {"n-new", "n-dup"}
     (part,) = data["parts"]
     assert part["part"] == "s:alpha#basics" and part["fingerprint"] == world.store.fingerprint()
+    assert part["subject"]  # the heading, so a part covers its subject and not only its sentences
 
 
 def test_check_input_has_claim_and_target_text(world):

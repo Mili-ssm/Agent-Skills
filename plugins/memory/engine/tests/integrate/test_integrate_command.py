@@ -229,6 +229,7 @@ def test_candidates_json(store_with_part):
     assert data[0]["synthesis"] == "alpha"
     part = data[0]["parts"][0]
     assert part["section"] == "basics" and part["fingerprint"] == store.fingerprint()
+    assert part["heading"].lower() == "basics"
     note = data[0]["notes"][1]
     assert note["claim"] == NEW_CLAIM and len(note["digest"]) == DIGEST_LENGTH
 
