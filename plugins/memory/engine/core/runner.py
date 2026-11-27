@@ -152,12 +152,19 @@ def _real_codex_home() -> Path:
     )
 
 
+def _tokens(auth: object) -> dict:
+    """The `tokens` object of a parsed `auth.json`, or `{}` for any other shape."""
+    tokens = auth.get("tokens") if isinstance(auth, dict) else None
+    return tokens if isinstance(tokens, dict) else {}
+
+
 def _same_account(content: str, real: Path) -> bool:
     """The per-run file is a refresh of the real login: same `tokens.account_id`, non-empty tokens. The run folder
     is the sandbox's writable root, so a model could plant any file there; this keeps it from logging the owner
-    out or swapping in another account. Raises `ValueError` or `OSError` on unreadable input."""
-    fresh_tokens = json.loads(content).get("tokens") or {}
-    real_tokens = json.loads(real.read_text(encoding="utf-8")).get("tokens") or {}
+    out or swapping in another account. No real file means no login to refresh: `OSError`, so no sync. Raises
+    `ValueError` or `OSError` on unreadable input."""
+    fresh_tokens = _tokens(json.loads(content))
+    real_tokens = _tokens(json.loads(real.read_text(encoding="utf-8")))
     return bool(
         real_tokens.get("account_id")
         and fresh_tokens.get("account_id") == real_tokens.get("account_id")
@@ -169,9 +176,9 @@ def _same_account(content: str, real: Path) -> bool:
 def sync_auth(run_dir: Path) -> bool:
     """After a Codex run: when Codex replaced the `auth.json` symlink of `codex_env` with a regular file (write a
     temp file, rename it over), that file holds the token Codex refreshed and the real one may hold a rotated-out
-    refresh token. A regular, newer file of the same account (`_same_account`) replaces the real `auth.json` atomically (mode 0600, same
-    folder); a real path that is a symlink is left alone. An in-place write needs nothing: it went through the link.
-    Never logs the token. True when it synced."""
+    refresh token. A regular, newer file of the same account (`_same_account`) replaces the real `auth.json`
+    atomically (mode 0600, same folder); a real path that is a symlink is left alone. An in-place write needs
+    nothing: it went through the link. Never logs the token. True when it synced."""
     fresh = run_dir / "codex-home" / "auth.json"
     real = _real_codex_home() / "auth.json"
     try:

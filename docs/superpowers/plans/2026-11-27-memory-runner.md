@@ -121,7 +121,7 @@ Pre-registered before the run: settle on Codex, 3 runs, same inputs as the first
 Fixed: `sync_auth` copied any newer valid JSON from the run folder (the sandbox's writable root) over the real `auth.json`; it now requires the same `tokens.account_id` and non-empty tokens.
 
 Deferred (low, or bounded by the session timeout):
-- The token cap is checked between sessions only: `codex exec` takes no token limit, so one session is bounded by its timeout (600 s), not the cap; one `mem-corroborate` run gives fill, reword, digest and the pass one cap each.
+- The token cap is checked between sessions only: `codex exec` takes no token limit, so one session is bounded by its timeout (600 s), not the cap; one `mem-corroborate` run gives each of fill, reword, digest and the pass its own cap.
 - When the real `auth.json` is a symlink, a refreshed token stays in the run folder until runs are pruned.
 - A timeout kills `codex`, not its shell children; the last 5 stderr lines go unredacted into the status file.
 - Unprobed: whether the sandbox lets a session write the real `auth.json` through the run folder's link.

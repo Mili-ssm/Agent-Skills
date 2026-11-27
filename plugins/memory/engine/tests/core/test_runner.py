@@ -390,8 +390,16 @@ def test_sync_auth_ignores_invalid_json(tmp_path: Path, monkeypatch: pytest.Monk
 
 @pytest.mark.parametrize(
     "planted",
-    [_auth("other", "new"), "{}", json.dumps({"tokens": {"account_id": "acct"}})],
-    ids=["other-account", "empty", "no-tokens"],
+    [
+        _auth("other", "new"),
+        "{}",
+        json.dumps({"tokens": {"account_id": "acct"}}),
+        "[1, 2]",
+        '"abc"',
+        "null",
+        '{"tokens": "x"}',
+    ],
+    ids=["other-account", "empty", "no-tokens", "list", "string", "null", "tokens-string"],
 )
 def test_sync_auth_refuses_a_file_that_is_not_a_refresh(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, planted: str
