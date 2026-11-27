@@ -11,9 +11,12 @@ import re
 
 from capture import event_lines as ev
 
-# Codex wraps its own injected context in snake_case tags (`<environment_context>`,
-# `<codex_internal_context>`, ...); an owner pasting HTML (`<div>`) has no underscore in the tag name.
-_INJECTED = re.compile(r"# AGENTS\.md instructions|<[a-z][a-z0-9]*_[a-z0-9_]*[\s>]")
+# Codex wraps its own injected context whole in snake_case tags (`<environment_context>…</environment_context>`,
+# `<codex_internal_context …>…</codex_internal_context>`); an owner's HTML (`<div>`) has no underscore in the tag
+# name, and an owner's text that only starts with such a tag (`<user_id> is null`) is not wrapped whole.
+_INJECTED = re.compile(
+    r"# AGENTS\.md instructions.*|<([a-z][a-z0-9]*_[a-z0-9_]*)(?:\s[^>]*)?>.*</\1>", re.DOTALL
+)
 _SUBAGENT_ARGS = ("message", "cmd", "target")  # JSON keys of the Codex subagent tools
 _SUBAGENT = "\0subagent"  # state key: this rollout is a Codex subagent thread, which yields nothing
 _FAILED_PREFIX = "Script failed"
@@ -52,7 +55,7 @@ def _texts(content: object) -> list[str]:
 def _message_events(payload: dict) -> list[str]:
     role = payload.get("role")
     if role == "user":
-        texts = [t for t in _texts(payload.get("content")) if not _INJECTED.match(t.lstrip())]
+        texts = [t for t in _texts(payload.get("content")) if not _INJECTED.fullmatch(t.strip())]
         body = ev.flat(" ".join(texts), ev.HUMAN_LIMIT)
         return [f"OWNER: {body}"] if body else []
     if role == "assistant":

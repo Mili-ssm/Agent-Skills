@@ -45,7 +45,7 @@ def test_injected_user_items_are_dropped(tmp_path):
     entries = [
         meta(),
         message("user", "# AGENTS.md instructions for /x\n<INSTRUCTIONS>"),
-        message("user", "<environment_context>\n<cwd>/x</cwd>"),
+        message("user", "<environment_context>\n<cwd>/x</cwd>\n</environment_context>"),
         message("developer", "skill body"),
         message("user", "<environment_context>\n</environment_context>", "real words"),
     ]
@@ -188,8 +188,19 @@ def test_every_observed_injected_wrapper_is_dropped(tmp_path):
 
 
 def test_owner_html_and_angle_text_are_kept(tmp_path):
-    entries = [meta(), message("user", "<div>hello</div>"), message("user", "<3 you, a_b <c>")]
-    assert lines(tmp_path, entries) == ["[2] OWNER: <div>hello</div>", "[3] OWNER: <3 you, a_b <c>"]
+    entries = [
+        meta(),
+        message("user", "<div>hello</div>"),
+        message("user", "<3 you, a_b <c>"),
+        message("user", "<user_id> is null here"),
+        message("user", "<a_b>x</a_b> then my question"),
+    ]
+    assert lines(tmp_path, entries) == [
+        "[2] OWNER: <div>hello</div>",
+        "[3] OWNER: <3 you, a_b <c>",
+        "[4] OWNER: <user_id> is null here",
+        "[5] OWNER: <a_b>x</a_b> then my question",
+    ]
 
 
 def test_injected_first_part_keeps_only_the_prompt(tmp_path):
