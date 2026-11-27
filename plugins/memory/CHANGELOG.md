@@ -4,6 +4,10 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+### Changed
+
+- Codex setup in the README: the VS Code extension never asks to trust hooks, so trust them once from the CLI's `/hooks` screen. Note for 0.17.0: Claude Code sessions also record the plugin root at session start (`~/.local/state/agent-memory/plugin-root`), which the `mem` launcher reads.
+
 ## [0.17.0] - 2026-11-27
 
 ### Added
