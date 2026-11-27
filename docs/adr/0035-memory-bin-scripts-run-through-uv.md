@@ -5,7 +5,7 @@ Status: accepted · Date: 2026-11-26 · Supersedes 0033
 ## Context
 
 - [ADR 0033](0033-memory-bin-scripts-need-python-3-11.md) kept the six background scripts (`mem-auto`, `mem-capture`, `mem-corroborate`, `mem-research`, `mem-settle`, `mem-synthesize`) on the system `python3` with a 3.11 floor, and named its own revisit trigger: "`bin/` scripts run through `uv`". `mem` already needs `uv`, so the floor bought no independence from it, and it needed a test (the floor test) and a per-file Ruff target to hold.
-- Measured 2026-11-26 (pre-mortems of the [plan](../superpowers/plans/2026-11-26-memory-bin-through-uv.md)):
+- Measured 2026-11-26 (pre-mortems of the [plan](../superpowers/plans/done/2026-11-26-memory-bin-through-uv.md)):
   - `uv` keys script environments by the script path: a PEP 723 header in each of seven scripts means seven environments per plugin version.
   - A cold start prints `Installed ...` on stderr unless `--quiet`.
   - A cold cache with no network fails.

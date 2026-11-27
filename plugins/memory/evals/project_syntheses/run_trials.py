@@ -2,7 +2,7 @@
 """Project-synthesis trials: does a stamped project synthesis help an agent find its way in a real project, and does
 the "possibly stale" stamp keep it from trusting text that went out of date?
 
-The design and the decision rule are fixed in docs/superpowers/plans/2026-11-17-memory-plugin-project-syntheses.md
+The design and the decision rule are fixed in docs/superpowers/plans/done/2026-11-17-memory-plugin-project-syntheses.md
 (Task 4). The project under test is a copy of this repository at its HEAD, without the files that hold the answers
 (CLAUDE.md, the plans, the eval folder), with its own `git init`; each session works in its own copy of a prepared
 folder. Phases, run in this order (each keeps its results in a state file in the work folder and skips what is done):

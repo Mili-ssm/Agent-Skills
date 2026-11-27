@@ -96,7 +96,7 @@ ADR 0022 changes "auto-triggering is a bonus": the owner wants skills and agents
 
 ## Review 2026-11-26
 
-Prompt review of 2026-11-26 (four `prompt-engineer` audits; plan `docs/superpowers/plans/2026-11-26-prompt-review-fixes.md`): body changes to 10 agents, 4 skills and 1 command of `agent-skills` and to 4 agents and 2 skills of `memory`, plus the session start sentence of `memory`. No `description` changed. The offload-policy change of the same day is measured in ADR 0017 `## Measurement 2026-11-26`. Everything else is **unmeasured** (ADR 0020), with these kill criteria:
+Prompt review of 2026-11-26 (four `prompt-engineer` audits; plan `docs/superpowers/plans/done/2026-11-26-prompt-review-fixes.md`): body changes to 10 agents, 4 skills and 1 command of `agent-skills` and to 4 agents and 2 skills of `memory`, plus the session start sentence of `memory`. No `description` changed. The offload-policy change of the same day is measured in ADR 0017 `## Measurement 2026-11-26`. Everything else is **unmeasured** (ADR 0020), with these kill criteria:
 
 | Change | Revert it when |
 |---|---|

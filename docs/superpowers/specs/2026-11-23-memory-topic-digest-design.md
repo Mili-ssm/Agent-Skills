@@ -1,6 +1,6 @@
 # A digest per topic for the loaded lessons: design
 
-Status: approved by the owner on 2026-11-23, with the limits of C96 and C97 added by them the same day · [plan](../plans/2026-11-23-memory-topic-digest.md) · Builds C85 of [the rewording and grouping design](2026-11-23-memory-reword-and-grouping-design.md) on the grouped block (C81 to C83). The table of [the capture design](2026-11-21-memory-capture-design.md) reserves the numbers C86 to C97.
+Status: approved by the owner on 2026-11-23, with the limits of C96 and C97 added by them the same day · [plan](../plans/done/2026-11-23-memory-topic-digest.md) · Builds C85 of [the rewording and grouping design](2026-11-23-memory-reword-and-grouping-design.md) on the grouped block (C81 to C83). The table of [the capture design](2026-11-21-memory-capture-design.md) reserves the numbers C86 to C97.
 
 ## Goal
 
@@ -48,7 +48,7 @@ Made by the agent that ran the plan, from the pre-mortem and the end reviews; ea
 | C90 | Under a printed heading the lessons that have a digest line come first, then those printed with their short form (project lessons, and lessons whose line is stale or missing) | A digest line leans on the heading right above it; a short form stands alone |
 | C91 | A stored text is checked again for its form each time the file is read: a text with a line break or a control character, or longer than its limit, is dropped, a heading taking its topic's lines with it. A lesson the checking session's answer leaves out is not judged: it spends no try and is not stored | A text of the file is printed into every session; an answer that omits a lesson is no judgment of it |
 | C92 | One run asks lines for about 30 lessons, topics kept whole. The step removes from its file the topics that no longer hold two ready lessons, the lines of lessons that left a topic, and the tries of texts that no longer exist. A failure to write the file after the sessions is a failed run for the wait | Neither the file nor the state may grow without bound, and a run that cannot save must not be paid for again at every compaction |
-| C95 | The automatic half was run on 2026-11-23 on a copy of the owner's global lessons, once without applying (the sheet) and once applying, and passed both times ([results](../plans/2026-11-23-memory-topic-digest.md#results)). Only 9 lessons shared a topic with another, the two runs wrote different lines, and writer and checker are the same small model | A small sample: the owner's reading decides. The owner read the sheet on 2026-11-23, called no line stronger than its claim, and turned the layout on in their own configuration; the default stays `flat` |
+| C95 | The automatic half was run on 2026-11-23 on a copy of the owner's global lessons, once without applying (the sheet) and once applying, and passed both times ([results](../plans/done/2026-11-23-memory-topic-digest.md#results)). Only 9 lessons shared a topic with another, the two runs wrote different lines, and writer and checker are the same small model | A small sample: the owner's reading decides. The owner read the sheet on 2026-11-23, called no line stronger than its claim, and turned the layout on in their own configuration; the default stays `flat` |
 
 ## Not in this change
 
