@@ -320,4 +320,5 @@ Trials keep everything under the ignored `target/` folder at the repository root
 ```sh
 python3 plugins/memory/evals/routing/run_trials.py --self-check
 python3 plugins/memory/evals/recall/run_trials.py --self-check
+python3 plugins/memory/evals/integrate/run_trial.py --self-check
 ```

@@ -1,0 +1,335 @@
+{
+ "synthesis": {
+  "slug": "db-indexing",
+  "title": "Database indexing",
+  "topic": "indexing",
+  "summary": "How relational database indexes are structured, chosen and maintained.",
+  "parts": [
+   {
+    "section": "Structures",
+    "sentences": [
+     [
+      "B-tree indexes keep keys sorted, so they serve both equality and range lookups.",
+      "btree-order"
+     ],
+     [
+      "Each B-tree node holds many keys, which keeps the tree shallow even for large tables.",
+      "btree-order"
+     ],
+     [
+      "Hash indexes answer equality lookups in constant time but cannot serve ranges.",
+      "hash-lookup"
+     ],
+     [
+      "A hash index gives no ordering, so it cannot help a sort.",
+      "hash-lookup"
+     ],
+     [
+      "Bitmap indexes suit columns with few distinct values.",
+      "bitmap-low-cardinality"
+     ]
+    ]
+   },
+   {
+    "section": "Selection",
+    "sentences": [
+     [
+      "An index pays off on columns that filter out most rows.",
+      "selective-columns"
+     ],
+     [
+      "A column with a handful of distinct values rarely benefits from a plain index.",
+      "selective-columns"
+     ],
+     [
+      "In a composite index, the leftmost column decides which queries can use it.",
+      "composite-order"
+     ],
+     [
+      "Equality columns belong before range columns in a composite index.",
+      "composite-order"
+     ],
+     [
+      "A covering index answers a query without reading the table.",
+      "covering-index"
+     ]
+    ]
+   },
+   {
+    "section": "Maintenance",
+    "sentences": [
+     [
+      "Every index slows down inserts and updates because it must be kept in step with the table.",
+      "write-cost"
+     ],
+     [
+      "Dropping unused indexes saves write time and disk space.",
+      "write-cost"
+     ],
+     [
+      "Indexes grow sparse after many deletes and updates, which wastes pages.",
+      "index-bloat"
+     ],
+     [
+      "Rebuilding a bloated index restores its compactness.",
+      "index-bloat"
+     ],
+     [
+      "Table statistics must be refreshed so the planner picks the right index.",
+      "stats-refresh"
+     ]
+    ]
+   }
+  ]
+ },
+ "members": [
+  {
+   "slug": "btree-order",
+   "claim": "B-tree indexes keep their keys in sorted order in wide nodes."
+  },
+  {
+   "slug": "hash-lookup",
+   "claim": "Hash indexes map a key to a row location without keeping any order."
+  },
+  {
+   "slug": "bitmap-low-cardinality",
+   "claim": "Bitmap indexes work well on columns with few distinct values."
+  },
+  {
+   "slug": "selective-columns",
+   "claim": "Indexes help most on columns that filter out most rows."
+  },
+  {
+   "slug": "composite-order",
+   "claim": "A composite index is ordered by its columns from left to right."
+  },
+  {
+   "slug": "covering-index",
+   "claim": "An index that holds every column a query needs avoids reading the table."
+  },
+  {
+   "slug": "write-cost",
+   "claim": "Each index adds work to every write on its table."
+  },
+  {
+   "slug": "index-bloat",
+   "claim": "Indexes accumulate unused space as rows are deleted and updated."
+  },
+  {
+   "slug": "stats-refresh",
+   "claim": "The planner relies on table statistics to choose among indexes."
+  }
+ ],
+ "notes": [
+  {
+   "slug": "partial-index-small",
+   "claim": "Partial indexes cover only the rows that match a condition, so they stay small.",
+   "label": "append",
+   "part": "s:db-indexing#structures"
+  },
+  {
+   "slug": "fulltext-word-map",
+   "claim": "Full-text indexes map each word to the rows that contain it.",
+   "label": "append",
+   "part": "s:db-indexing#structures"
+  },
+  {
+   "slug": "spatial-bounding-box",
+   "claim": "Spatial indexes organize shapes by their bounding boxes to answer region queries.",
+   "label": "append",
+   "part": "s:db-indexing#structures"
+  },
+  {
+   "slug": "clustered-key-order",
+   "claim": "A clustered index stores the table rows themselves in key order.",
+   "label": "append",
+   "part": "s:db-indexing#structures"
+  },
+  {
+   "slug": "lsm-buffered-writes",
+   "claim": "LSM-tree indexes buffer writes in memory and merge them into sorted files later.",
+   "label": "append",
+   "part": "s:db-indexing#structures"
+  },
+  {
+   "slug": "secondary-row-pointer",
+   "claim": "A secondary index stores the key together with a pointer back to the table row.",
+   "label": "append",
+   "part": "s:db-indexing#structures"
+  },
+  {
+   "slug": "index-join-columns",
+   "claim": "Columns used in join conditions are strong candidates for an index because joins probe them repeatedly.",
+   "label": "append",
+   "part": "s:db-indexing#selection"
+  },
+  {
+   "slug": "function-defeats-index",
+   "claim": "Wrapping an indexed column in a function usually prevents the index from being used.",
+   "label": "append",
+   "part": "s:db-indexing#selection"
+  },
+  {
+   "slug": "leading-wildcard",
+   "claim": "A leading wildcard in a text pattern defeats an ordinary B-tree index.",
+   "label": "append",
+   "part": "s:db-indexing#selection"
+  },
+  {
+   "slug": "foreign-key-index",
+   "claim": "Foreign key columns are common candidates for an index.",
+   "label": "append",
+   "part": "s:db-indexing#selection"
+  },
+  {
+   "slug": "check-query-plan",
+   "claim": "Compare the query plan before and after adding an index to confirm that it is used.",
+   "label": "append",
+   "part": "s:db-indexing#selection"
+  },
+  {
+   "slug": "concurrent-build",
+   "claim": "Creating an index on a large table can block writes unless the system builds it concurrently.",
+   "label": "append",
+   "part": "s:db-indexing#maintenance"
+  },
+  {
+   "slug": "usage-statistics",
+   "claim": "Index usage statistics reveal the indexes that are never read.",
+   "label": "append",
+   "part": "s:db-indexing#maintenance"
+  },
+  {
+   "slug": "fill-factor",
+   "claim": "A fill factor below one hundred percent leaves room in pages and reduces page splits.",
+   "label": "append",
+   "part": "s:db-indexing#maintenance"
+  },
+  {
+   "slug": "load-then-index",
+   "claim": "Bulk loads run faster when the indexes are created after the data is loaded.",
+   "label": "append",
+   "part": "s:db-indexing#maintenance"
+  },
+  {
+   "slug": "long-transactions",
+   "claim": "Long-running transactions can keep dead index entries from being cleaned up.",
+   "label": "append",
+   "part": "s:db-indexing#maintenance"
+  },
+  {
+   "slug": "schedule-reindex",
+   "claim": "Reindexing on a schedule is unnecessary for indexes that stay compact.",
+   "label": "append",
+   "part": "s:db-indexing#maintenance"
+  },
+  {
+   "slug": "sorted-range-equality",
+   "claim": "Both equality and range lookups can be answered by a sorted B-tree index.",
+   "label": "belongs-existing-sentence",
+   "part": "s:db-indexing#structures",
+   "sentence": 1
+  },
+  {
+   "slug": "hash-single-key",
+   "claim": "A hash structure finds a single key quickly but gives no help for range scans.",
+   "label": "belongs-existing-sentence",
+   "part": "s:db-indexing#structures",
+   "sentence": 3
+  },
+  {
+   "slug": "worth-when-filtering",
+   "claim": "An index is worth its cost where a filter removes most of the rows.",
+   "label": "belongs-existing-sentence",
+   "part": "s:db-indexing#selection",
+   "sentence": 1
+  },
+  {
+   "slug": "each-index-slows-writes",
+   "claim": "Adding an index makes every insert and update slower, since the index has to be updated too.",
+   "label": "belongs-existing-sentence",
+   "part": "s:db-indexing#maintenance",
+   "sentence": 1
+  },
+  {
+   "slug": "first-column-rule",
+   "claim": "Only queries that constrain the first column of a composite index can use it.",
+   "label": "belongs-existing-sentence",
+   "part": "s:db-indexing#selection",
+   "sentence": 3
+  },
+  {
+   "slug": "dup-covering",
+   "claim": "A covering index answers a query without reading the table.",
+   "label": "duplicate-of-existing",
+   "part": "s:db-indexing#selection",
+   "sentence": 5
+  },
+  {
+   "slug": "dup-rebuild",
+   "claim": "Rebuilding a bloated index restores its compactness.",
+   "label": "duplicate-of-existing",
+   "part": "s:db-indexing#maintenance",
+   "sentence": 4
+  },
+  {
+   "slug": "dup-hash-order",
+   "claim": "A hash index gives no ordering, so it cannot help a sort.",
+   "label": "duplicate-of-existing",
+   "part": "s:db-indexing#structures",
+   "sentence": 4
+  },
+  {
+   "slug": "pooling-limits",
+   "claim": "Connection pooling limits how many clients talk to the database at once.",
+   "label": "on-topic-no-fit"
+  },
+  {
+   "slug": "replica-lag",
+   "claim": "Replicas can serve read queries but may lag behind the primary.",
+   "label": "on-topic-no-fit"
+  },
+  {
+   "slug": "restore-backups",
+   "claim": "Backups should be restored regularly to prove that they work.",
+   "label": "on-topic-no-fit"
+  },
+  {
+   "slug": "row-level-security",
+   "claim": "Row-level security filters which rows each user may see.",
+   "label": "on-topic-no-fit"
+  },
+  {
+   "slug": "weekly-rebuild",
+   "claim": "Rebuild every index weekly to keep it fast.",
+   "label": "superseded",
+   "superseded_by": "index-bloat"
+  },
+  {
+   "slug": "index-everything",
+   "claim": "Create an index on every column to be safe.",
+   "label": "superseded",
+   "superseded_by": "selective-columns"
+  },
+  {
+   "slug": "hash-always-wins",
+   "claim": "Hash indexes always beat B-tree indexes for equality lookups.",
+   "label": "disputed",
+   "dispute": {
+    "fact": "Benchmarks on current engines show B-tree indexes equal or faster for most equality workloads.",
+    "source": "https://example.org/index-benchmarks",
+    "quote": "B-tree lookups matched hash lookups in most of the measured workloads."
+   }
+  },
+  {
+   "slug": "indexes-speed-all",
+   "claim": "Indexes make every query faster.",
+   "label": "disputed",
+   "dispute": {
+    "fact": "Write-heavy queries run slower with more indexes.",
+    "source": "https://example.org/index-write-cost",
+    "quote": "Each added index increased the time of every insert."
+   }
+  }
+ ]
+}
