@@ -14,14 +14,14 @@ Status: built in the reduced scope, waiting for the owner's cap for the paid tri
 
 ## State on 2026-11-27 (where to resume)
 
-Built, each task reviewed in two rounds: Tasks 1, 2, 5, 6a, 6b, 6c, 7 and 8 in the reduced scope below; Tasks 3 and 4 not built. Next: the owner's cap for the paid trial (Step 6 of Task 8), then `python3 plugins/memory/evals/integrate/run_trial.py --budget <cap>`, the Sonnet audit of the appended sentences, and `run_trial.py verdict`.
+Built, each task reviewed in two rounds: Tasks 1, 2, 5, 6a, 6b, 6c, 7 and 8 in the reduced scope below; Tasks 3 and 4 not built. Next: the owner's cap for the paid trial (Step 6 of Task 8), then `python3 plugins/memory/evals/integrate/run_trial.py --budget <cap>`, the Sonnet audit of the appended sentences, and `run_trial.py verdict RESULT --audit-reply FILE --audit-cost USD`.
 
 | Check | Result |
 |---|---|
-| Engine suite | 3,234 passed, 5 skipped (3,040 before the stage) |
+| Engine suite | 3,248 passed, 5 skipped (3,040 before the stage) |
 | `mem-integrate --self-check`, `evals/integrate/run_trial.py --self-check` | pass; the trial's four wrong fake answers each give `kill` |
 | Rehearsal on a copy of the real store with a fake `claude` (Step 5b), twice | 1 synthesis with 4 candidate notes; a run changed 16 files (the synthesis, the 4 notes, 11 re-stamped members); `mem check` printed nothing before and after; `--undo` returned every file byte for byte, logs aside; the real store equal to the copy taken before the rehearsal |
-| Trial dry run | 1 synthesis, 29 notes offered, 2 sessions: 0.149 USD, plus the Sonnet audit estimated at 1.489 USD from the catalog's relative cost: 1.638 USD; the bar is twice that |
+| Trial dry run | 1 synthesis, 29 notes offered, 2 sessions: 0.149 USD, plus the Sonnet audit as one request, 0.138 USD: 0.287 USD; the bars are twice the sessions part and twice the sum |
 
 What differs from the task text, by ruling during the build:
 
@@ -32,7 +32,7 @@ What differs from the task text, by ruling during the build:
 | Task 6b | Two sessions per synthesis (place, check); a failed session, a malformed answer or a failed apply leaves its notes for the next run | Reduced scope; a note must not be marked done when nothing was decided |
 | Task 6c | Two briefs; an answer that says it could not read its file is a failure line with nothing applied | Kill criterion of the pre-mortem |
 | Task 7 | `--undo` reads the log as a stack (a restore marker cancels the entry it undid), verifies after each restore what `mem restore` reports, and tells a restored group from a partly restored one, which it refuses and lists | Review: undoing a newer run blocked an older one on the same synthesis; a restore that stops half way must not let a rerun undo an older change |
-| Task 8 | Labels without `contradicts-sibling`; another note may change only `updated` and `part_of_hash`; a wrong sentence in the right part kills; a run with a failed session or nothing integrated is `void`; `verdict` closes the result after the audit | Reduced scope and review |
+| Task 8 | Labels without `contradicts-sibling`; another note may change only `updated` and `part_of_hash`; a wrong sentence in the right part kills; a run with a failed session or nothing integrated is `void`; `verdict --audit-reply FILE --audit-cost USD` closes the result after the audit | Reduced scope and review |
 
 Known limits, left open: a `mem` command run by hand between `--undo`'s check and its restore can be undone in the group's place (the output says so; live commands take no lock); rows carry no note digest, so a note reworded between `--candidates` and the apply lands with its new wording; `sp.mem` calls have no timeout and a timed-out session's spend is not counted (both shared with `mem-settle`); `entry/integrate.py` repeats four small helpers of `entry/settle.py`; the `superseded` and `disputed` seeds test only the candidates filter; the Haiku price constants of the trial are dated, not calibrated.
 
