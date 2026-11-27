@@ -1,12 +1,14 @@
 # Memory: measure the effect of loaded lessons before adding mechanisms
 
-Status: in progress (task 8, the scenario with headroom) · Date: 2026-11-26, last worked 2026-11-27 · Branch: feat/memory-lesson-holdout for tasks 1–7; task 8 on a branch of its own, created when it starts
+Status: first paid replay run on 2026-11-27, 3 points, no verdict below six; next, points for the eight remaining cases · Date: 2026-11-26, last worked 2026-11-27 · Branch: feat/memory-lesson-holdout for tasks 1–7 (merged, PR #219); feat/memory-lessons-replay for task 8
 
 Owner rulings (2026-11-26): proceed with the order the review of that day proposed; the paired trial starts as a pilot capped at 3 USD; matching by meaning is built after it, its trial capped at 2 USD. Why: the review found no measure that the plugin improves a task, three mechanisms that hardly act in real use, and 2026 studies in which memory did not beat a memory-off baseline. Figures and sources: project memories (`mem search "after 5 days of automatic capture"`, `mem search "VibeMemBench"`).
 
 ## Where to resume
 
-Owner rulings of 2026-11-27: adopt the `mem-settle` change (task 6); build the reduced scope of seamless stage 3 ([its task plan](2026-11-26-memory-seamless-stage-3-integration.md#reduced-scope-proposed-2026-11-26-accepted-by-the-owner-2026-11-27)); merge the pending pull requests (PR #218 merged that day); build a more serious scenario for the trial of the loaded lessons (task 8). Model usage spent on this plan before task 8: 1.53 USD (pilot 1.46, settle trial 0.065) of the 5 USD the owner allowed (3 for the pilot, 2 for the settle trial).
+Owner rulings of 2026-11-27: adopt the `mem-settle` change (task 6); build the reduced scope of seamless stage 3 ([its task plan](2026-11-26-memory-seamless-stage-3-integration.md#reduced-scope-proposed-2026-11-26-accepted-by-the-owner-2026-11-27)); merge the pending pull requests (PR #218 merged that day); build a more serious scenario for the trial of the loaded lessons (task 8). Model usage spent on this plan: 4.93 USD (pilot 1.46, settle trial 0.065, two replay probes 0.39, first replay run 3.016 under its own cap of 6 USD set 2026-11-27).
+
+Next: the first paid replay ran on 2026-11-27 (3 points, no verdict below six; see Results). Then: locate the failing message of the eight remaining cases and add their points, each through `replay.py check` and `replay_run.py capture` first.
 
 ## Tasks
 
@@ -16,7 +18,7 @@ Owner rulings of 2026-11-27: adopt the `mem-settle` change (task 6); build the r
 - [x] 5. Seamless stage 3 plan: the recommended minimum (Tasks 1, 2, 5, 6, 7 without the sibling step; Tasks 3 and 4 deferred) written into its "Open for the owner's review". Not executed at that review; accepted by the owner on 2026-11-27. Check: the plan names which tasks wait and the condition that reopens them.
 - [x] 6. Matching by meaning for `mem-settle`: its pair list looks at a lower floor (section below). Built and measured on 2026-11-27: by the trial's rule not adopted, on one count that rests on a reading of two records; **adopted by the owner on 2026-11-27** on that reading (Results). Check: the trial rule of that section, results under `## Results`.
 - [x] 7. Paired offline trial of the loaded lessons (design below): the pilot ran on 2026-11-27 and the full trial is not run (see Results). Check: its `## Results` holds the table and the action its rule gives.
-- [ ] 8. A scenario with headroom for the loaded lessons (owner, 2026-11-27: "a more serious scenario"): tasks the model fails without the lesson, found before any arm is compared. Check: its design section names how headroom is shown first, and a run's table is under `## Results`.
+- [ ] 8. A scenario with headroom for the loaded lessons (owner, 2026-11-27: "a more serious scenario"): tasks the model fails without the lesson, found before any arm is compared. Designed, pre-mortem applied, harness built and checked without a model, first paid run on three points 2026-11-27 (Results); points for the eight remaining cases still to locate. Check: its design section names how headroom is shown first, and a run's table is under `## Results`.
 
 ## Why the hold-out was dropped (pre-mortem, 2026-11-26)
 
@@ -64,6 +66,35 @@ Four scenarios, arms N and L, 3 runs each, run one after another so no run in fl
 | `keep-the-look` | ui: change only what was asked | The label changed and the stylesheet's bytes did not |
 
 The pilot answers two things only: whether the harness measures (canary, void runs, scores that differ between runs), and whether arm N leaves room: a scenario that arm N already passes in 3 of 3 runs has no headroom and says nothing about its lesson (VibeMemBench recommends gating on headroom). It cannot support "the lessons help": 4 scenarios and 3 runs are below the reading rule above.
+
+## Replay of real failures (task 8): the scenario with headroom
+
+Problem: the pilot's four written tasks left no headroom (both arms 3 of 3), so they say nothing about the lessons. The owner asked on 2026-11-27 for a more serious scenario. The only tasks known to have headroom are the ones the model already failed: each lesson's case log names the sessions in which its practice failed, and those transcripts are still on disk.
+
+Design, as amended by the pre-mortem of 2026-11-27: copy a real transcript up to the message just before the failing action, resume the copy headless, and score the model's next action, with the block of lessons printed again at the cut, once without the lesson and once with it. Nothing in the replay runs a tool.
+
+| Decision | Choice | Reason |
+|---|---|---|
+| Points | One per `failed` case of a lesson whose session belongs to this repository and whose transcript still exists (11 cases in 7 sessions on 2026-11-27, more with the project-scope lessons). For each, the failing assistant message is located by hand and recorded with the cut in a private file under `target/` (git-ignored): session, cut, lesson, scoring rule. Checked per point without a model: the lesson's marker words are in no block of the copy before the cut; no compaction lies before the cut; the context at the cut, read from the usage of the last assistant entry, fits the model's window | Sessions of other projects hold client conversations and are never replayed. No transcript text, session id or lesson handle is tracked. A lesson already in the baseline, or a cut after a compaction, makes the arms equal for a mechanical reason |
+| Scoring rule per point, written before any run | A yes or no question about the next assistant message (its text and the tool calls it asks for), answered by code where a trace decides it (a tool name, a command pattern, a length), else by a judge session that sees the question, the last owner turn and the message with any sentence that quotes the lesson removed, and never the arm. Two controls, both required: the rule fails the original failing message, and it passes one compliant message written by hand for the point. A rule that misses either is rewritten or its point dropped | The practices in the case log are mostly judgment (ask before building, check scope, read examples first). A rule that fails everything would pass a single control and read as "the lesson does nothing" |
+| Replay | A copy of the transcript cut before the first entry of the failing message, session id and working folder rewritten, `cost-state` entries removed (measured: the copy otherwise carries the original session's cost into the result and the budget); `claude -p --resume <copy> --fork-session --no-session-persistence --max-turns 1`, prompt `Continue.` when the cut falls inside a turn; working folder: a detached worktree of this repository at the last commit before the cut's timestamp; a `PreToolUse` hook denies every tool, and a denied call is data, not an error (measured: it appears in the result's `permission_denials`). User plugins stay off (`--setting-sources project`): the real memory plugin would capture the replay at session end and write a `failed` case to the owner's store. The agent and skill listings are rebuilt with `--plugin-dir` for `agent-skills` only | Measured on 2026-11-27: the copy resumes; in an empty folder with plugins off the model first remarked that the repository and the agents were gone |
+| Arms | R0: the block the session itself received at its start, taken from the copy, plus one fixed closing line, printed again at the cut by a `SessionStart` hook that matches `resume|fork`. R: the same text with the lesson's line added | One line of difference, one shared prefix, and no dependence on today's store. It is the situation right after a compaction, the best position a lesson can have. The plugin never prints on resume (its matcher is `startup|clear|compact`), so this hook is the trial's own |
+| Arm S, only after its spike | The lesson's line added to the block at the copy's start, against the copy as it was | The lesson at the start of a long session. Not built until the wire capture below shows that a resume sends the edited entry: it may rebuild its request from the recorded request entries, which hold a second copy of the block |
+| Wire capture, before any paid run | Each arm resumed once against a local server that records the request and answers with an error (`ANTHROPIC_BASE_URL`): the two requests must differ by exactly the lesson's line, at the cut, with the same tools and agents | No model cost; it replaces trust in how a resume builds its request. Run on the first point on 2026-11-27, it found two defects before any paid run: a forked resume starts with the source `fork`, so a `resume` matcher never ran; and a hook text equal to one the transcript already holds is not sent again, so the unchanged block never reached the request (hence the closing line in both arms). After both fixes the two requests differ by the lesson's line only, in the last message |
+| Headroom gate | 3 runs of R0 per point; a point enters the comparison only when at least 2 of 3 fail again. The gate's runs are not reused, and a point's comparison follows its gate at once, while the prefix is still cached | A failure that does not repeat was chance ("Lessons from Luck", arXiv 2610.33029); gating on the arm the comparison uses keeps the headroom real; fresh runs avoid reading regression to the mean as an effect |
+| Runs | 5 per arm per gated point, Sonnet. Per-run cap set from the point's context size, never below its first cache write | The pilot's cap of 0.20 USD a run is below the 0.38 USD measured for a first write |
+| Reading, fixed here | A table per point (runs that follow the practice in R0 and in R), and a count of points where R is ahead, behind or level, one point per session in the count (the point with the smaller context). No p-value: with at most 7 sessions a sign test cannot go below 0.016 and one tie puts it out of reach. The lesson "helps when fresh" when R is ahead by 2 runs or more of 5 in at least 5 sessions and behind in none; "does not help" when it is ahead in at most 1; anything else is "not decided at this size" | Stated before spending: this size detects only a large effect |
+| Canary | Without a model: R's hook text holds the lesson's line and R0's does not; both scoring controls pass. With a model, on the first point: the trace shows the hook's text in both arms | A broken harness must not read as "no effect" |
+
+Action by the rule: helps when fresh → the lesson works when it is near the decision, so build arm S to learn whether it also works from the start; if not, print the block again at an interval or by topic. Does not help on failures that repeat → the short forms do not carry the practice: rewrite them with the situation and the action stated and rerun before any other mechanism.
+
+Kill criteria: the wire capture shows the arms equal, or different anywhere but the lesson's line → fix before any paid run; fewer than 6 points pass the per-point checks → report the table of points and spend nothing; the gates of the first 3 points all pass (no failure repeats) → stop and re-plan; any change to the owner's store, case log or background-pass state during a run or 60 seconds after it → stop at once; the first two points cost more than twice their estimate → stop and ask the owner.
+
+Measured cost (2026-11-27, two probes, 0.39 USD): a Sonnet replay at about 120,000 tokens of context cost 0.38 USD, nearly all of it the first write of the prefix to the cache; later runs on the same prefix read it. Contexts at the candidate cuts reach 190,000 to 590,000 tokens in six of the seven sessions, and the cost of a first write grows with them, so the estimate is made per point from its measured context before a cap is asked for. Rough bound today: gate plus comparison on one point, 13 runs on one prefix, 1 to 3 USD; eight points 10 to 25 USD. Estimates in this project were low by 3 to 5 times, so the cap bounds the spend and runs go one after another.
+
+Limits, known before the run: one next message is scored, so a practice that shows only later in the turn is not measured and its point is dropped at the scoring-rule step; the worktree lacks whatever was uncommitted at the time; the lesson was written from this very failure, so the replay tests whether the lesson fixes its own case, the easiest case for it; points come from one repository and one owner and several share a session; the replay runs on Sonnet while the failures happened on a larger model, whose name the recorded system prompt still carries; `Continue.` is a message the original session did not have, the same in both arms.
+
+Not started until the owner sets a cap: every paid run of this section. Built without a model: the harness, its self-check against a fake `claude`, the wire capture, the private points file with its per-point checks.
 
 ## Matching by meaning (task 6): settling looks at a lower floor
 
@@ -146,3 +177,33 @@ The wrong actions are two records labelled `version`, joined to their base (one 
 Limits: one set of records, used for the runs before and after the revision; the writer and the judge are models of one family; 11 of the 18 paraphrases already passed the old floor, so the trial says more about the brief's revision than about the floor (on the 14 paraphrases written in both rounds, 12 shown each time: 6 joined before the revision, 12 after; recounted from the kept result files under `target/`); the trial holds no pair of opposite claims in which the newer one is the wrong one, a case the brief's `supersede` cannot tell from a correction and that stage W did not test either; with the lower floor more runs find a pair and start a session (about 0.015 USD each, at most one per `auto_settle_minutes`), which the weekly kill criterion bounds; no run on the real store (records that exist there are already counted as judged).
 
 State: the owner adopted the floor (`PAIR_FLOOR`) and the brief's revision on 2026-11-27, on the reading above of the two `version` records; the trial's rule on its own did not pass, and the limits above stand. Unreleased; it acts only where `auto_settle` is on. Kill criteria: those of the section "Matching by meaning".
+
+### Replay of real failures, built and checked without a model, 2026-11-27 (before the paid run)
+
+Harness: `plugins/memory/evals/lessons_effect/replay.py`, `replay_run.py`, `replay_selfcheck.py` (its README section has the commands, exit codes and the points file). Two probes on real transcripts cost 0.39 USD; everything after them ran at no model cost.
+
+| Check | Result |
+|---|---|
+| Self-checks (fake `claude`, local server, temp folders) | pass |
+| Points located by hand, private file under `target/` | 3 of the 11 cases, in 3 sessions; contexts 119,200, 142,077 and 189,827 tokens |
+| Per-point checks (`replay.py check`) | 3 of 3: no marker in the session's blocks, no compaction before the cut, the code rule fails the original failing message and passes the compliant one |
+| Wire capture (`replay_run.py capture`) | 3 of 3: tools and system equal, the same number of messages, the block printed again in both arms, the lesson's line the only difference |
+| Owner's folders | `~/.claude/projects` holds the same number of folders before and after |
+
+All three points are scored by code (a command pattern in the next message), so no judge call is needed for them. Estimated cost from the measured 4.1 USD per million tokens of a first cache write: about 1.2, 1.4 and 1.6 USD a point with gate and comparison, 4 to 6 USD in all; three points are below the six the reading rule needs, so this run can only fill the table and show whether failures repeat (the gate), not give a verdict.
+
+Not done: the failing message of the other eight cases is not located; no judge rule has been tried on a real message; arm S (the lesson at the session start) is not built.
+
+### Replay of real failures, first paid run, 2026-11-27 (3.016 USD, owner's cap 6)
+
+`replay_run.py run target/lessons-replay/points.json --max-cost 6`, Sonnet, all three points scored by code. Gate: 3 runs without the lesson's line; comparison: 5 runs per arm (R0 without the line, R with it).
+
+| Point | Context (tokens) | Gate: failure repeats | R0 followed | R followed | Cost USD |
+|---|---|---|---|---|---|
+| description-examples | 119,200 | 3 of 3 | 0 of 5 | 2 of 5 | 0.895 |
+| two-sources-disagree | 189,827 | 3 of 3 | 0 of 5 | 5 of 5 | 1.193 |
+| pattern-on-real-files | 142,077 | 3 of 3 | 0 of 5 | 0 of 5 | 0.928 |
+
+Sentences removed before the judge: R0 0, R 0 (no judge call; code scoring). Kill criteria: the rule "fewer than 6 points pass the per-point checks → report the table and spend nothing" was met and set aside by the owner, who capped this three-point run at 6 USD on 2026-11-27 knowing it gives no verdict; the others were not met (every gate repeats the failure; cost under the estimate of 4 to 6).
+
+Reading: below the six points the rule needs, so **no verdict**. As a table only: each of the three failures repeats when replayed (the scenario has the headroom the pilot lacked), and the lesson's line is ahead by 2 runs or more in 2 of 3 points (+2, +5) and behind in none; `pattern-on-real-files` shows no effect. Next: points for the eight remaining cases (see Where to resume) before a reading.
