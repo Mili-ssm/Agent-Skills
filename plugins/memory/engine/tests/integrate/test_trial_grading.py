@@ -299,6 +299,16 @@ def test_a_run_that_integrated_nothing_is_void_not_a_pass():
     assert result["verdict"] == "void: no note was integrated"
 
 
+def test_a_kill_that_fired_is_shown_before_a_void_run():
+    trial = _load()
+    result = trial.totals_verdict(
+        _graded(wrong_attachments=[{"note": "n"}], run_failures=["alpha: the session failed"]),
+        unbacked=0,
+        audit_cost=0.05,
+    )
+    assert result["verdict"] == "kill: wrong attachment"
+
+
 def test_undo_comparison_skips_the_git_folder_and_the_curation_log_only(tmp_path):
     trial = _load()
     for rel, text in {

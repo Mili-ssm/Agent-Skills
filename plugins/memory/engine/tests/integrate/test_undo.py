@@ -274,3 +274,60 @@ def test_undo_of_two_groups_refused_then_both_undone(world):
     assert out.rc == 0 and "undone: 2" in out.out and "remaining: 0" in out.out
     assert world.store.meta("n-new").get("part_of") != "alpha#basics"
     assert before != {}
+
+
+def _log_lines(world):
+    return (world.store.root / ".curation-log").read_text(encoding="utf-8").split("\n")
+
+
+def _mark_restored(world, group_id, handle):
+    """Appends the marker `mem restore` writes for the group's entry on `handle` (the way a restore that stopped
+    after its first member leaves the log)."""
+    for number, line in enumerate(_log_lines(world)):
+        entry_ = json.loads(line) if line else {}
+        if entry_.get("group") == group_id and entry_.get("handle") == handle:
+            marker = {"action": "restore", "handle": handle, "undone": number}
+            with (world.store.root / ".curation-log").open("a", encoding="utf-8") as log:
+                log.write(json.dumps(marker) + "\n")
+            return
+    raise AssertionError(handle)
+
+
+def _watch_mem(world, monkeypatch):
+    mem = FakeMem()
+    monkeypatch.setattr(entry.sp, "mem", lambda _store, _env, *argv: mem(*argv))
+    return mem
+
+
+def test_undo_refuses_a_partly_restored_group(world, monkeypatch):
+    world.store.new_note("n-two", "Alpha takes a second claim.")
+    _applied(world)
+    _, second = _second_run(world, monkeypatch)
+    (group,) = world.record().groups
+    handles = [
+        e["handle"]
+        for e in map(json.loads, filter(None, _log_lines(world)))
+        if e.get("group") == group.group_id
+    ]
+    (synthesis,) = [h for h in handles if "n-two" not in h]
+    _mark_restored(world, group.group_id, synthesis)  # only the synthesis of the group is cancelled
+    mid = snapshot(world.store.root)
+    mem = _watch_mem(world, monkeypatch)
+    out = world.undo(second)
+    assert out.rc == REFUSED and "partly restored" in out.err and "n-two" in out.err
+    assert synthesis not in out.err.split("still live:")[1]
+    assert "remaining: 1" in out.out and not mem.calls
+    assert snapshot(world.store.root) == mid
+    assert not world.record().groups[0].undone
+
+
+def test_undo_marks_an_already_restored_group_without_restoring(world, monkeypatch):
+    _applied(world)
+    assert world.mem("restore", "s:alpha").rc == 0  # the owner restored it by hand
+    mid = snapshot(world.store.root)
+    mem = _watch_mem(world, monkeypatch)
+    out = world.undo()
+    assert out.rc == 0, out.err
+    assert "already restored" in out.out and "remaining: 0" in out.out and not mem.calls
+    assert world.record().groups[0].undone
+    assert snapshot(world.store.root) == mid

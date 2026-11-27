@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from memories.journal import CURATION_LOG
@@ -34,6 +34,9 @@ class UndoResult:
     undone: int = 0
     remaining: int = 0
     refusal: str | None = None
+    already_restored: list[str] = field(
+        default_factory=list
+    )  # group ids a hand `mem restore` had undone
 
 
 def _log_objects(store: Path) -> list[tuple[int, dict[str, Any]]]:
@@ -54,9 +57,9 @@ def _log_objects(store: Path) -> list[tuple[int, dict[str, Any]]]:
     return found
 
 
-def _live_entries(store: Path) -> list[dict[str, Any]]:
-    """The log as a stack: the entries that hold a text (`before`) and that no restore marker has cancelled, oldest
-    first. A marker `{"action": "restore", "handle": H, "undone": N}` cancels the entry on line N."""
+def _entries(store: Path) -> list[tuple[bool, dict[str, Any]]]:
+    """Every log entry that holds a text (`before`), oldest first, with whether a restore marker has cancelled it
+    (`line` added). A marker `{"action": "restore", "handle": H, "undone": N}` cancels the entry on line N."""
     objects = _log_objects(store)
     cancelled = {
         e["undone"]
@@ -64,10 +67,13 @@ def _live_entries(store: Path) -> list[dict[str, Any]]:
         if e.get("action") == "restore" and isinstance(e.get("undone"), int)
     }
     return [
-        {**e, "line": n}
-        for n, e in objects
-        if isinstance(e.get("before"), str) and n not in cancelled
+        (n in cancelled, {**e, "line": n}) for n, e in objects if isinstance(e.get("before"), str)
     ]
+
+
+def _live_entries(store: Path) -> list[dict[str, Any]]:
+    """The log as a stack: the entries no restore marker has cancelled, oldest first."""
+    return [e for gone, e in _entries(store) if not gone]
 
 
 def _written(store: Path, group: GroupRecord) -> list[dict[str, Any]]:
@@ -121,6 +127,32 @@ def _restore(store: Path, group: GroupRecord, mem: Mem) -> str | None:
     return None
 
 
+def _already_or_partial(store: Path, group: GroupRecord) -> tuple[bool, str | None]:
+    """(True, None) when every log entry of the group is cancelled by a restore marker (it is restored already);
+    (False, refusal) when only some are (restoring now would undo an older change of the synthesis); (False, None)
+    when none is, or the log has no entry of the group (`newest_is_group` then decides)."""
+    mine = [(gone, e) for gone, e in _entries(store) if e.get("group") == group.group_id]
+    live = [e["handle"] for gone, e in mine if not gone]
+    if not mine or len(live) == len(mine):
+        return False, None
+    if not live:
+        return True, None
+    return False, (
+        f"group {group.group_id} is partly restored (a restore stopped half way); "
+        f"still live: {', '.join(live)}; finish by hand with mem restore <handle> for each, "
+        "then run --undo again"
+    )
+
+
+def _undo_group(store: Path, group: GroupRecord, mem: Mem, result: UndoResult) -> str | None:
+    """Undoes or recognizes as restored one group and marks nothing; the refusal text or None."""
+    restored, refusal = _already_or_partial(store, group)
+    if restored:
+        result.already_restored.append(group.group_id)
+        return None
+    return refusal or newest_is_group(store, group) or _restore(store, group, mem)
+
+
 def undo(store: Path, folder: Path, run_id: str, mem: Mem) -> UndoResult:
     """Undoes the run's groups newest first, marking each in the record; a second call continues with the rest."""
     record = run_state.read_record(folder, run_id)
@@ -129,7 +161,7 @@ def undo(store: Path, folder: Path, run_id: str, mem: Mem) -> UndoResult:
     todo = [g for g in reversed(record.groups) if not g.undone]
     result = UndoResult(remaining=len(todo))
     for group in todo:
-        refusal = newest_is_group(store, group) or _restore(store, group, mem)
+        refusal = _undo_group(store, group, mem, result)
         if refusal:
             result.refusal = refusal
             return result

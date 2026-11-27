@@ -456,6 +456,8 @@ def cmd_undo(store: Path, run_id: str) -> int:
         )
     finally:
         os.close(fd)
+    for group_id in result.already_restored:
+        print(f"already restored: group {group_id}")
     print(f"undone: {result.undone}")
     print(f"remaining: {result.remaining}")
     if result.refusal:

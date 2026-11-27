@@ -384,7 +384,8 @@ def totals_verdict(
 ) -> dict:
     """The kill criteria, each as pass/fail (`ok` None: not known yet) with its count. `unbacked` is the number of
     appended sentences the Sonnet audit found not backed by their notes and `audit_cost` the audit's cost in USD
-    (None before the audit). A run with a failed session, or with no note integrated, is `void`, never a pass."""
+    (None before the audit). A kill that fired is shown first; otherwise a run with a failed session, or with no note
+    integrated, is `void`, never a pass."""
     undo = graded.get("undo_identical")
     # a note joined to another sentence of the right part is a wrong attachment too (its reference lands on a
     # sentence that does not state the claim); `wrong_sentences` keeps its own list for the report
@@ -410,10 +411,10 @@ def totals_verdict(
     failed = [c["name"] for c in criteria if c["ok"] is False]
     unknown = [c["name"] for c in criteria if c["ok"] is None]
     void = _void_reason(graded)
-    if void:
-        verdict = "void: " + void
-    elif failed:
+    if failed:  # a kill that fired outranks a void run
         verdict = "kill: " + ", ".join(failed)
+    elif void:
+        verdict = "void: " + void
     elif unknown:
         verdict = "pending: " + ", ".join(unknown)
     else:
