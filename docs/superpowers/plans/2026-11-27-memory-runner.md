@@ -1,6 +1,6 @@
 # Memory plugin: background passes choose a runner (Claude Code or Codex)
 
-Status: ADR 0037 accepted by the owner 2026-11-27; tasks 1-3 done, 4-6 in progress · Decision: [ADR 0037](../../adr/0037-memory-background-passes-choose-a-runner.md)
+Status: ADR 0037 accepted by the owner 2026-11-27; tasks 1-6 done; release (memory 0.18.0) pending the owner · Decision: [ADR 0037](../../adr/0037-memory-background-passes-choose-a-runner.md)
 
 Owner, 2026-11-27: a `runner` choice (`claude` | `codex`) for the background passes, given per call, with a default in configuration and as a plugin option. Design and record first, code after the owner's review.
 
@@ -27,7 +27,7 @@ All go through `core/headless.py` (`Session`, `command`, `run_raw`, `session_env
 - [x] 3. Builders on the runner layer, one commit each: settle, integrate, corroborate; the others refuse `codex` with a clear message (synthesis, curator, research, capture). Budget sites counted in tokens for Codex: `entry/auto.py`, `entry/integrate.py`, `entry/settle.py`, `corroborate/run.py`. Check: each builder's tests gain a Codex case, including a test that the Codex environment finds no store; the full engine suite passes.
 - [x] 4. Settings: `--runner` on each pass command; `runner` in the Claude plugin's `userConfig`, passed as `MEM_RUNNER_OPTION` by `session-env.sh` (shell commands) and explicitly by `session-end.sh`, `session-index.sh` and `pre-compact.sh` (passes they start); the config file read by `engine/core/config.py`; `trial_env.make_env` clears `MEM_RUNNER*`. Check: precedence tests, including a hook-started pass; `claude plugin validate plugins/memory`.
 - [x] 5. (closed 2026-11-27 by owner decision, see § Task 5 final: settle passes on Codex with its addendum; integrate is Claude-only; corroborate not tried on real Codex) Trial on a store copy (`evals/` harness, `trial_env.py`): settle and integrate on the same inputs with each runner; compare decisions, failures, time and tokens/cost. Rule fixed before the run: the same seeded inputs and ground truth for both arms (settle: the 40 derived records of stage W; integrate: its trial set), each arm given `--runner`; Codex passes when its wrong actions are not more than Claude's and no run fails on the runner itself; after the run, `~/.codex/sessions` of the trial home holds nothing outside the run.
-- [ ] 6. Docs and release: README (setting, precedence, what stays on Claude and why), CHANGELOG, platform-parity, backlog; ADR 0037 accepted with the trial in a `## Review`.
+- [x] 6. Docs (release left open: memory 0.18.0, bump, tag, after the owner's go): README (setting, precedence, what stays on Claude and why), CHANGELOG, platform-parity, backlog; ADR 0037 accepted with the trial in a `## Review`.
 
 ## Task 1 results (2026-11-27)
 
@@ -67,6 +67,10 @@ Integrate criteria 3 (unbacked sentences, a paid Sonnet audit) and 7 (cost) stay
 **Verdict by the rule: Codex fails on settle** (1 wrong action against 0 for Claude), so kill criterion 4 ("more wrong actions with `codex` than with `claude` on the same inputs") fired for settle. Integrate meets the rule (0 wrong, no runner failure) but Codex placed far fewer notes (7 against 22) and appended none: a recall gap, not a wrong action. No run failed on the runner itself in either pass. Task 5 stays open. One run per arm gives no variance: the single wrong action may be noise (Codex also acted on 20 of 20 against Claude's 18), so a rerun at more runs needs the owner's decision.
 
 Isolation checks (before/after snapshots): real store files and mtimes identical; `~/.local/state/agent-memory` identical; `~/.codex/sessions` no new file; `git status` shows only the harness files. Not attributable: `~/.codex/logs_2.sqlite-wal/-shm` and `models_cache.json` changed during the window (the VS Code extension runs there too); no file under `~/.codex/sessions` appeared. Claude spend of the trial: 0.047 USD of the 2 USD cap.
+
+### Diagnosis run (2026-11-27)
+
+Before the prompt fixes, one more run per arm with `MEM_DIAG_DIR` keeping each session's input and reply (raw files in `target/diag/`, git-ignored; tokens not recorded). Settle on Codex merged the same pair as in the first trial (`a-headless-eval-started-with-claude-plugin-eval` into `a-headless-trial-launched-from-inside-a-claude`: the second loses the first's command). Integrate on Codex again appended 0 of 17; its place step proposed no `append` at all, reading "what that part covers" as only what the part's sentences already say. Claude appended 16 of 17.
 
 ## Task 5 rerun after prompt fixes (2026-11-27)
 

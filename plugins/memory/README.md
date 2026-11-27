@@ -30,7 +30,7 @@ The passes the engine starts run on Claude by default. Two may run on Codex mode
 
 How a Codex session runs: `codex exec` found at run time (`MEM_CODEX`, `PATH`, else the newest VS Code extension binary), with `HOME` and `XDG_*` in the run folder, a private `CODEX_HOME` holding only a link to your `auth.json` (a token Codex refreshes there is copied back; the folder is removed after the run), `--ignore-user-config` and hooks disabled, so your `AGENTS.md`, plugins and this plugin's hooks stay out. Budgets are tokens, not money: `MEM_CODEX_TOKENS` per run (default 500000; Codex's own prompt costs about 44k input tokens per call).
 
-Trial, 2026-11-27 (seeded store copy, `evals/settle/run_trial.py`): settle on Codex, with a Codex-only rule that a merge must lose nothing, gave 0 wrong actions of 40 in 3 runs (median 16 of 20 should-act pairs acted on, as Claude); without that rule it merged one pair wrongly in 2 of 2 runs. Corroborate was tested only against a simulated Codex. Numbers: [runner plan](../../docs/superpowers/plans/2026-11-27-memory-runner.md).
+Trial, 2026-11-27 (seeded store copy, `evals/settle/run_trial.py`): settle on Codex, with a Codex-only rule that a merge must lose nothing, gave 0 wrong actions of 40 in 3 runs (median 16 of 20 should-act pairs acted on; Claude 18 in its one run with the shared brief); without that rule it merged one pair wrongly in both runs without it (first trial and diagnosis). Corroborate was tested only against a simulated Codex. Numbers: [runner plan](../../docs/superpowers/plans/2026-11-27-memory-runner.md).
 
 ## Requirements
 

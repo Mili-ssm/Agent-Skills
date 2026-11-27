@@ -1,7 +1,7 @@
 """The runner of a background pass: `claude` or `codex` (ADR 0037).
 
 Resolution, the Codex binary, its argv and environment, its JSON-lines output, and one normalized `Outcome` for
-both runners. Standard library plus `core`; builders do not use it yet (plan task 3).
+both runners. Standard library plus `core`.
 """
 
 from __future__ import annotations
