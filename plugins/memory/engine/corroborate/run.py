@@ -21,6 +21,7 @@ from memories import records
 from synthesize import pipeline as sp
 
 from corroborate import decide as corroborate_decide
+from corroborate import job as corroborate_job
 from corroborate import state as corroborate_state
 
 if TYPE_CHECKING:
@@ -262,6 +263,12 @@ def run_on(spend: Spend, work: Path, spec: headless.Session, out: Path | None = 
         spec = replace(spec, prompt=f"{spec.prompt}\n\n{CODEX_IO_ADDENDUM}")
         done = codex_pass.ask(spec, work, writes=True, timeout=SESSION_TIMEOUT)
         spend.tokens += done["tokens"]
+        if spend.tokens > codex_pass.token_cap():
+            done |= {
+                "has_result": False,
+                "error": True,
+                "failure": f"{spend.tokens} tokens exceeded the token cap {codex_pass.token_cap()}",
+            }
         if out is not None and done["has_result"] and not out.is_file():
             done |= {"has_result": False, "error": True, "failure": f"it wrote no {out.name}"}
         return done
@@ -1099,8 +1106,7 @@ def _fill_world():
     return data, projects, records.global_memories_root(os.environ), names
 
 
-def _cell(text: object) -> str:
-    return " ".join(str(text or "").split()).replace("|", "\\|")
+_cell = corroborate_job.cell
 
 
 def _ask(

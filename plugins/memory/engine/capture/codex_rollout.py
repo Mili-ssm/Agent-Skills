@@ -11,16 +11,19 @@ import re
 
 from capture import event_lines as ev
 
-# Codex wraps its own injected context whole in snake_case tags (`<environment_context>…</environment_context>`,
-# `<codex_internal_context …>…</codex_internal_context>`); an owner's HTML (`<div>`) has no underscore in the tag
-# name, and an owner's text that only starts with such a tag (`<user_id> is null`) is not wrapped whole.
+# Only known injected envelopes are filtered: arbitrary snake_case XML can be owner text.
 _INJECTED = re.compile(
-    r"# AGENTS\.md instructions.*|<([a-z][a-z0-9]*_[a-z0-9_]*)(?:\s[^>]*)?>.*</\1>", re.DOTALL
+    r"# AGENTS\.md instructions(?: for /[^\n]+)?[ \t]*\n\s*<INSTRUCTIONS>.*</INSTRUCTIONS>|"
+    r"<(environment_context|codex_internal_context|external_codex_apps_[a-z0-9_]+|"
+    r"send_user_message_question_reply)(?:\s[^>]*)?>.*</\1>",
+    re.DOTALL,
 )
 _SUBAGENT_ARGS = ("message", "cmd", "target")  # JSON keys of the Codex subagent tools
 _SUBAGENT = "\0subagent"  # state key: this rollout is a Codex subagent thread, which yields nothing
 _FAILED_PREFIX = "Script failed"
+_PROCESS_EXIT = re.compile(r"^Process exited with code (-?\d+)(?:\r?\n|$)")
 _OUTPUT_MARK = "Output:\n"
+_EXEC_MIN_PARTS = 2  # header and structured result
 # Outer types that carry no content for the extract; any other outer type is counted as skipped.
 _KNOWN_OUTER = (
     "session_meta",
@@ -92,15 +95,45 @@ def _call_events(payload: dict, names: dict) -> list[str]:
 
 
 def _output_text(output: object) -> str:
+    if isinstance(output, dict):
+        return _output_text(output.get("output", output.get("content")))
     return output if isinstance(output, str) else " ".join(_texts(output))
 
 
+def _exec_result(output: object) -> dict | None:
+    """Decode the shell runner's metadata part, separate from the command's own output."""
+    parts = _texts(output)
+    if len(parts) < _EXEC_MIN_PARTS or not parts[0].startswith("Script completed\nWall time "):
+        return None
+    try:
+        meta = json.loads(parts[1])
+    except (ValueError, RecursionError):
+        return None
+    if (
+        isinstance(meta, dict)
+        and {"chunk_id", "wall_time_seconds", "exit_code", "output"} <= meta.keys()
+    ):
+        return meta
+    return None
+
+
 def _output_events(payload: dict, names: dict, state: dict) -> list[str]:
-    text = _output_text(payload.get("output"))
-    failed = text.startswith(_FAILED_PREFIX)
+    output = payload.get("output")
+    name = names.get(payload.get("call_id"), "?")
+    if name == "exec":
+        output = _exec_result(output) or output
+    text = _output_text(output)
+    exit_code = output.get("exit_code") if isinstance(output, dict) else payload.get("exit_code")
+    process_exit = _PROCESS_EXIT.match(text)
+    failed = (
+        (isinstance(exit_code, int) and not isinstance(exit_code, bool) and exit_code != 0)
+        or payload.get("is_error") is True
+        or (isinstance(output, dict) and output.get("is_error") is True)
+        or text.startswith(_FAILED_PREFIX)
+        or (process_exit is not None and process_exit.group(1).lstrip("-").strip("0"))
+    )
     if failed:
         text = text.partition(_OUTPUT_MARK)[2] or text
-    name = names.get(payload.get("call_id"), "?")
     event = ev.result_event({"is_error": failed, "content": text}, name, state)
     return [event] if event is not None else []
 

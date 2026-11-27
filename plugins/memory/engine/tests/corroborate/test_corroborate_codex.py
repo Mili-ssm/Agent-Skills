@@ -84,8 +84,11 @@ def test_a_codex_session_without_a_result_ends_the_run(w, codex, step):
 @pytest.mark.parametrize(
     ("step", "shown"),
     [
-        ({"failed": "model overloaded", "exit": 1}, "model overloaded; exit 1"),
-        ({"error": "quota exceeded", "stderr": "rate limited", "exit": 3}, "stderr: rate limited"),
+        ({"failed": "model overloaded", "exit": 1}, "turn.failed; exit 1"),
+        (
+            {"error": "quota exceeded", "stderr": "rate limited", "exit": 3},
+            "error; exit 3; stderr present",
+        ),
     ],
 )
 def test_the_codex_failure_reason_reaches_the_status_and_the_log(w, codex, step, shown):
@@ -252,3 +255,13 @@ def test_reword_on_codex_with_no_output_file_names_the_file(w, codex):
     result = corroborate_reword.reword_auto(str(w.fake), 0.25)
     _addendum_ends_the_prompt(codex)
     assert "it wrote no reword.json" in result["stopped"]
+
+
+def test_verifier_over_remaining_cap_does_not_apply_group(w, codex, monkeypatch):
+    monkeypatch.setenv("MEM_CODEX_TOKENS", str(TOKENS + 1))
+    a, b = two_projects(w)
+    model(w, [group(a, b)])
+    codex.plan(STEP, STEP)
+    run(w)
+    assert len(codex.calls) == TWO_SESSIONS and not globals_(w)
+    assert log_lines(w)[-1]["tokens"] == 2 * TOKENS

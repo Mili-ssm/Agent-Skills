@@ -29,7 +29,7 @@ from notes import index as index_files
 from notes import note as note_files
 from research import checks as research_checks
 
-from commands import common, edit
+from commands import common, edit, import_recovery
 
 if TYPE_CHECKING:
     import argparse
@@ -614,44 +614,61 @@ def _import_plan(
     )
 
 
-def _import_write_file(
-    src: Path, root: Path, rel: str, log: bool, originals: dict[Path, bytes]
-) -> None:
-    """Copy one file into `root`; with `log`, keep the bytes of the text file it replaces in `originals`."""
-    target = root / rel
-    if log and target.is_file():
+def _import_topics_bytes(root: Path, topic_text: str) -> bytes:
+    path = root / "topics.yaml"
+    safe_io.refuse_symlink_chain(root, path)
+    current = path.read_text(encoding="utf-8")
+    return (current + ("" if current.endswith("\n") or not current else "\n") + topic_text).encode()
+
+
+def _import_log_bytes(root: Path, planned: dict[Path, bytes]) -> bytes | None:
+    changes = {}
+    for path, replacement in planned.items():
         try:
-            target.read_bytes().decode("utf-8")
-            originals[target] = target.read_bytes()
-        except UnicodeDecodeError:
-            pass  # not text: the log keeps text only
-    target.parent.mkdir(parents=True, exist_ok=True)
-    with (src / rel).open("rb") as f:
-        safe_io.replace_file(target, f.read())
+            before = path.read_bytes()
+            before.decode("utf-8")
+        except (FileNotFoundError, UnicodeDecodeError):
+            continue
+        changes[path] = (before, common._sha(replacement))
+    if not changes:
+        return None
+    log = root / records.CURATION_LOG
+    safe_io.refuse_symlink_chain(root, log)
+    current = log.read_bytes() if log.exists() else b""
+    if current and not current.endswith(b"\n"):
+        current += b"\n"
+    return current + common._group_entries(root, changes, "import").encode()
 
 
-def _import_append_topics(root: Path, topic_text: str) -> None:
-    current = (root / "topics.yaml").read_text(encoding="utf-8")
-    safe_io.replace_file(
-        root / "topics.yaml",
-        (current + ("" if current.endswith("\n") or not current else "\n") + topic_text).encode(
-            "utf-8"
-        ),
-    )
+def _import_payloads(plan: _ImportPlan, root: Path, log: bool) -> dict[Path, bytes]:
+    planned = {}
+    for rel in plan.todo:
+        if rel.startswith(".sources/") and not log:
+            continue
+        target = root / rel
+        source = plan.src / rel
+        safe_io.refuse_symlink_chain(root, target)
+        safe_io.refuse_symlink_chain(plan.src, source)
+        planned[target] = source.read_bytes()
+    if log and (history := _import_log_bytes(root, planned)) is not None:
+        planned[root / records.CURATION_LOG] = history
+    if plan.topic_text:
+        planned[root / "topics.yaml"] = _import_topics_bytes(root, plan.topic_text)
+    return planned
 
 
 def _import_apply(plan: _ImportPlan, root: Path, log: bool) -> None:
-    """Copy the files and the new topics into `root` (the store, or a scratch copy of it) and refresh the listings."""
-    originals: dict[Path, bytes] = {}
-    for rel in plan.todo:
-        if rel.startswith(".sources/") and root is not plan.dest:
-            continue
-        _import_write_file(plan.src, root, rel, log, originals)
-    if plan.topic_text:
-        _import_append_topics(root, plan.topic_text)
-    if originals:
-        common._log_group(root, originals, "import")
+    """Publish rollback data before writing a real import. The index is reconstructible from the store."""
+    planned = _import_payloads(plan, root, log)
+    if log and planned:
+        import_recovery.publish(root, planned)
+    for target, replacement in planned.items():
+        safe_io.refuse_symlink_chain(root, target)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        safe_io.replace_file(target, replacement)
     index_files.apply_index(root)
+    if log and planned:
+        import_recovery.clear(root)
 
 
 def _import_run(plan: _ImportPlan, dry_run: bool) -> list[note_fields.Problem]:
@@ -693,27 +710,50 @@ def _import_report(
                 print(f"  {item}")
 
 
+def _run_import(args: argparse.Namespace, src: Path, dest: Path) -> int:
+    if import_recovery.pending(dest):
+        raise OSError("an import was interrupted. Run mem import-recover before retrying")
+    plan = _import_plan(args, src, dest, _union_topics(src, dest))
+    flagged = _flag_import(src, plan.files)
+    problems = _import_run(plan, args.dry_run)
+    _import_report(plan, problems, flagged)
+    common.log_usage(
+        dest, {"cmd": "import", "copied": len(plan.todo), "conflicts": len(plan.conflicts)}
+    )
+    return 0
+
+
 def cmd_import(args: argparse.Namespace) -> int:
     dest = args.root.resolve()
     src = _import_source(args, dest)
     if isinstance(src, int):
         return src
     try:
-        topics = _union_topics(src, dest)
-    except note_files.FrontmatterError as exc:
-        print(f"mem: {exc}", file=sys.stderr)
-        return 2
-    plan = _import_plan(args, src, dest, topics)
-    flagged = _flag_import(src, plan.files)
-    try:
-        problems = _import_run(plan, args.dry_run)
+        with contextlib.nullcontext() if args.dry_run else import_recovery.locked(dest):
+            return _run_import(args, src, dest)
     except (note_files.FrontmatterError, OSError) as exc:
         print(f"mem: import failed: {exc}", file=sys.stderr)
         return 2
-    _import_report(plan, problems, flagged)
-    common.log_usage(
-        dest, {"cmd": "import", "copied": len(plan.todo), "conflicts": len(plan.conflicts)}
-    )
+
+
+def _recover_import(root: Path) -> bool:
+    if not import_recovery.pending(root):
+        return False
+    import_recovery.rollback(root)
+    index_files.apply_index(root)
+    import_recovery.clear(root)
+    return True
+
+
+def cmd_import_recover(args: argparse.Namespace) -> int:
+    root = args.root.resolve()
+    try:
+        with import_recovery.locked(root):
+            recovered = _recover_import(root)
+    except (OSError, TypeError, ValueError, note_files.FrontmatterError) as exc:
+        print(f"mem: import recovery failed: {exc}", file=sys.stderr)
+        return 2
+    print("Interrupted import rolled back." if recovered else "No interrupted import.")
     return 0
 
 

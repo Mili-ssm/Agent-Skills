@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -110,3 +111,35 @@ def test_missing_policy_file_is_silent(tmp_path: Path) -> None:
     lone.mkdir()
     shutil.copy(SCRIPT, lone / "offload-policy.sh")
     assert not run(tmp_path, lone / "offload-policy.sh")
+
+
+def test_codex_policy_is_opt_in_and_uses_installed_role_names(tmp_path: Path) -> None:
+    assert not run(tmp_path, MEM_HOST="codex")
+    config = tmp_path / "config" / "agent-memory"
+    config.mkdir(parents=True)
+    (config / "offload_table").write_text("true\n")
+    output = run(tmp_path, MEM_HOST="codex", XDG_CONFIG_HOME=str(config.parent))
+    assert output.count(HEADING) == 1
+    assert "`memory-researcher`" in output
+    assert "memory:memory-" not in output
+    assert "SendMessage" not in output
+
+
+def test_codex_policy_skips_a_pasted_table(tmp_path: Path) -> None:
+    codex_home = tmp_path / "codex"
+    codex_home.mkdir()
+    (codex_home / "AGENTS.md").write_text(f"{HEADING}\n")
+    assert not run(
+        tmp_path,
+        MEM_HOST="codex",
+        CODEX_HOME=str(codex_home),
+        CLAUDE_PLUGIN_OPTION_OFFLOAD_TABLE="true",
+    )
+
+
+def test_codex_policy_manifest_and_missing_role_fallback(tmp_path: Path) -> None:
+    manifest = json.loads((HOOK_DIR / "codex.json").read_text())
+    hooks = manifest["hooks"]["SessionStart"][0]["hooks"]
+    assert sum("/hooks/offload-policy.sh" in item["command"] for item in hooks) == 1
+    output = run(tmp_path, MEM_HOST="codex", CLAUDE_PLUGIN_OPTION_OFFLOAD_TABLE="true")
+    assert "If it is unavailable, do that work inline with mem." in output

@@ -961,6 +961,8 @@ class AutoRun:
             return self.skip("the project has no memory folder")
         if not self.take_lock(lock_wait):
             return self.skip("another capture is running")
+        if cs.is_excluded(self.data, self.transcript):
+            return self.skip("transcript excluded")
         return self.capture(project)
 
     def report_crash(self, exc: Exception) -> None:
@@ -1063,10 +1065,12 @@ def _codex_root(transcript: Path) -> Path | None:
     return None
 
 
-def _sweep_folders(transcript: Path, now: float) -> list[Path]:
+def _sweep_folders(transcript: Path, now: float, codex: bool | None = None) -> list[Path]:
     """Folders that hold the candidates: for a Codex rollout, today's day folder and the SWEEP_MAX_AGE_DAYS
     before it; else its own folder."""
-    root = _codex_root(transcript) if _is_codex_rollout(transcript) else None
+    if codex is None:
+        codex = _is_codex_rollout(transcript)
+    root = _codex_root(transcript) if codex else None
     if root is None:
         return [transcript.parent]
     days = (
@@ -1076,10 +1080,12 @@ def _sweep_folders(transcript: Path, now: float) -> list[Path]:
     return [root / f"{d:%Y}" / f"{d:%m}" / f"{d:%d}" for d in days]
 
 
-def _idle_sessions(transcript: Path, now: float) -> list[tuple[float, int, Path]]:
+def _idle_sessions(
+    transcript: Path, now: float, codex: bool | None = None
+) -> list[tuple[float, int, Path]]:
     """(mtime, size, path) of the other transcripts of the folder(s) that are idle and not too old."""
     found = []
-    for folder in _sweep_folders(transcript, now):
+    for folder in _sweep_folders(transcript, now, codex):
         if not folder.is_dir():
             continue
         for item in folder.iterdir():
@@ -1142,17 +1148,6 @@ def _note_sweep_run(store: Path, now: float, item: Path, size: int, run: dict | 
     return bool(run["modeled"])
 
 
-def _sweep_one(store: Path, now: float, item: Path, size: int, claude: str | None) -> bool:
-    """Capture one idle session; whether it started a model session."""
-    cwd = _sweep_cwd(store, item)
-    if cwd is None:
-        # Settled without a run: nothing can change while the file does not, so remember its size.
-        cs.save_swept_size(store, item.stem, size)
-        return False
-    run = auto_run("sweep", item, cwd, claude, lock_wait=cs.SWEEP_LOCK_WAIT_SECONDS)
-    return _note_sweep_run(store, now, item, size, run)
-
-
 def _swept_transcript(data: object) -> Path | None:
     """The starting session's transcript from the hook JSON, when its folder exists."""
     path = data.get("transcript_path") if isinstance(data, dict) else None
@@ -1192,30 +1187,82 @@ def _to_examine(store: Path, size: int, item: Path, codex: bool, project: Path |
     return _in_project(meta, project)
 
 
-def _sweep(claude: str | None) -> None:
-    if os.environ.get(cs.OPTION) != "true":
-        return
-    transcript = _swept_transcript(json.load(sys.stdin))
-    if transcript is None:
-        return
-    store, now = data_dir(), time.time()
-    found = _idle_sessions(transcript, now)
-    codex = _is_codex_rollout(transcript)
-    project = _project_of(first_cwd(transcript)) if codex else None
+def _sweep_start(store: Path, transcript: Path, hook: dict, now: float) -> tuple | None:
+    lock = jobs.take_run_lock(cs.capture_dir(store))
+    if lock is None:
+        return None
+    try:
+        if cs.is_excluded(store, transcript):
+            codex = _codex_root(transcript) is not None
+            cwd = hook.get("cwd") if isinstance(hook, dict) else None
+            project = _project_of(Path(cwd)) if codex and isinstance(cwd, str) else None
+        else:
+            codex = _is_codex_rollout(transcript)
+            project = _project_of(first_cwd(transcript)) if codex else None
+        found = _idle_sessions(transcript, now, codex)
+        return codex, project, found
+    finally:
+        os.close(lock)
+
+
+def _sweep_candidate(
+    store: Path, size: int, item: Path, codex: bool, project: Path | None
+) -> tuple[bool, Path | None] | None:
+    lock = jobs.take_run_lock(cs.capture_dir(store))
+    if lock is None:
+        return None
+    try:
+        eligible = not cs.is_excluded(store, item) and _to_examine(
+            store, size, item, codex, project
+        )
+        cwd = _sweep_cwd(store, item) if eligible else None
+        if eligible and cwd is None:
+            cs.save_swept_size(store, item.stem, size)
+        return eligible, cwd
+    finally:
+        os.close(lock)
+
+
+def _sweep_found(store: Path, now: float, setup: tuple, claude: str | None) -> None:
+    codex, project, found = setup
     examined = used = 0  # files opened; runs that started a model session
     for _mtime, size, item in sorted(found, key=lambda row: row[0], reverse=True):
         if _sweep_limit_reached(store, now, used, examined):
             break
-        if not _to_examine(store, size, item, codex, project):
+        candidate = _sweep_candidate(store, size, item, codex, project)
+        if candidate is None:
+            return
+        eligible, cwd = candidate
+        if not eligible:
             continue
         examined += 1
-        used += _sweep_one(store, now, item, size, claude)
+        if cwd is not None:
+            run = auto_run("sweep", item, cwd, claude, lock_wait=cs.SWEEP_LOCK_WAIT_SECONDS)
+            used += _note_sweep_run(store, now, item, size, run)
+
+
+def _sweep(claude: str | None) -> None:
+    if os.environ.get(cs.OPTION) != "true":
+        return
+    hook = json.load(sys.stdin)
+    transcript = _swept_transcript(hook)
+    if transcript is None:
+        return
+    store, now = data_dir(), time.time()
+    setup = _sweep_start(store, transcript, hook, now)
+    if setup is not None:
+        _sweep_found(store, now, setup, claude)
 
 
 def sweep(claude: str | None) -> None:
     """Capture sessions of the starting session's folder that were left open and never ended. Never raises, never prints."""
     with contextlib.suppress(Exception):  # a background process ends quietly
-        _sweep(claude)
+        try:
+            _sweep(claude)
+        except cs.ExclusionRegistryError as exc:
+            now = time.time()
+            cdir = cs.capture_dir(data_dir())
+            save_status(cdir, state="failed", finished=now, failure={"at": now, "reason": str(exc)})
 
 
 def cmd_sweep(args: argparse.Namespace) -> int:
@@ -1247,9 +1294,39 @@ def cmd_auto(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_exclude(args: argparse.Namespace) -> int:
+    """Wait for in-flight capture and record an exclusion under the same lock."""
+    data = data_dir()
+    job = AutoRun("exclude", Path(args.transcript), Path.cwd(), None)
+    try:
+        if not job.take_lock(cs.LOCK_WAIT_SECONDS):
+            print(
+                "mem-capture: capture lock timed out; exclusion was not recorded", file=sys.stderr
+            )
+            return 1
+        cs.exclude(data, Path(args.transcript))
+    except (OSError, TypeError, ValueError) as exc:
+        print(f"mem-capture: could not record exclusion: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        if job.lock is not None:
+            os.close(job.lock)
+    print("Automatic capture excluded for this transcript.")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
+    exclude = commands.add_parser(
+        "exclude",
+        help="permanently exclude a transcript from automatic capture",
+        description="Exclude this transcript from future automatic capture, including earlier unread text. "
+        "Waits for an in-flight capture to finish before returning. Previously recorded memories remain. "
+        "Use the same transcript path as the host hook. Manual runs are unaffected.",
+    )
+    exclude.add_argument("--transcript", required=True, help="the session transcript path")
+    exclude.set_defaults(func=cmd_exclude)
     run = commands.add_parser("run", help="read one transcript and keep the validated candidates")
     run.add_argument("--transcript", required=True, help="the session transcript (JSONL)")
     run.add_argument("--out", required=True, help="the result file (mode 0600)")
@@ -1315,7 +1392,7 @@ def main() -> int:
     ack.set_defaults(func=lambda _args: cmd_ack())
     args = parser.parse_args()
     if (
-        args.command != "ack"
+        args.command not in {"ack", "exclude"}
         and (refused := codex_pass.refuse_codex("mem-capture", getattr(args, "runner", None)))
         is not None
     ):

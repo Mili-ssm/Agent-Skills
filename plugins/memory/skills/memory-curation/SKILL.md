@@ -5,7 +5,7 @@ description: Reviews and tidies the memories and notes kept with the `mem` comma
 
 # Memory curation
 
-> In Codex the `memory-*` subagents and Claude Code's auto memory named below do not exist: do that work yourself with `mem` (personal matters are not stored in `mem`).
+> In Codex, use the `memory-*` role when available; if it is absent, do that work inline with `mem`. Claude Code's auto memory is unavailable in Codex. Personal matters are not stored in `mem`.
 
 **Core rule:** a pass decides, one item at a time, and every decision can be undone (`mem restore m:<handle>`). Nothing is deleted: a memory leaves search by being marked. When you cannot tell, leave the item and say so; a wrong merge costs more than a duplicate.
 
