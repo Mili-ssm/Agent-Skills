@@ -67,3 +67,14 @@ Integrate criteria 3 (unbacked sentences, a paid Sonnet audit) and 7 (cost) stay
 **Verdict by the rule: Codex fails on settle** (1 wrong action against 0 for Claude), so kill criterion 4 ("more wrong actions with `codex` than with `claude` on the same inputs") fired for settle. Integrate meets the rule (0 wrong, no runner failure) but Codex placed far fewer notes (7 against 22) and appended none: a recall gap, not a wrong action. No run failed on the runner itself in either pass. Task 5 stays open. One run per arm gives no variance: the single wrong action may be noise (Codex also acted on 20 of 20 against Claude's 18), so a rerun at more runs needs the owner's decision.
 
 Isolation checks (before/after snapshots): real store files and mtimes identical; `~/.local/state/agent-memory` identical; `~/.codex/sessions` no new file; `git status` shows only the harness files. Not attributable: `~/.codex/logs_2.sqlite-wal/-shm` and `models_cache.json` changed during the window (the VS Code extension runs there too); no file under `~/.codex/sessions` appeared. Claude spend of the trial: 0.047 USD of the 2 USD cap.
+
+## Task 5 rerun after prompt fixes (2026-11-27)
+
+Pre-registered before any rerun. Prompt fixes (owner-approved, model-neutral): the settle brief's `merge` row says a pair where one claim states anything the other lacks is not a merge (choose `nothing`); the integrate place step's input gains a `subject` per part (the part's heading) and the brief defines a part as covering its `subject`, not only what its sentences say.
+
+Runs: 3 per arm per pass (settle claude, settle codex, integrate claude, integrate codex), same inputs as the first trial (`target/settle-trial` with `derived.json`, `--runs 2`; integrate `seed.json`). Spend cap for Claude: 0.5 USD for the rerun (owner's total cap 2 USD, about 0.09 spent before).
+
+Rule:
+- Codex passes a pass when its median wrong actions <= Claude's median and no run fails on the runner itself; for integrate also Codex median appends >= 8 of 17.
+- Claude must not regress: settle median wrong 0 and should-act acted >= 17 of 20; integrate median wrong 0 and median appends >= 12 of 17. If Claude regresses, the prompt change is reverted (numbers recorded) even if Codex improved.
+- Task 5 is ticked only if both passes meet the rule.
