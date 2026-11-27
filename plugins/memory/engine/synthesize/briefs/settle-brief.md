@@ -6,7 +6,7 @@ Read `{PAIRS_FILE}`: a JSON list of pairs of short memories, each with `pair`, `
 
 | decision | meaning |
 |---|---|
-| `merge` | the same fact in other words: nothing is lost if one record stays. If one claim states anything the other lacks (a detail, a condition, a workaround), it is not a merge: choose `nothing` |
+| `merge` | the same fact in other words: nothing is lost if one record stays |
 | `supersede` | the newer claim corrects the older one, or says the same fact in a pair that cannot be merged: only the newer record stays active, and the older is kept as superseded |
 | `distinct` | different facts that only look alike, for example two versions, two systems, or two cases that are both valid |
 | `nothing` | you cannot tell from the two claims |
