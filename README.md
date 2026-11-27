@@ -130,7 +130,7 @@ Name a file the worker can open (a committed plan task, a spec, a commit range) 
 
 State the what, the limits and the check, not each step: the worker reads the code and works out the how. Independent briefs run in parallel in one message, with disjoint paths.
 
-Before you reply: if the project changed since `skeptical-reviewer` last ran and round 2 has not run, dispatch it now.
+Before you reply: if the project changed since `skeptical-reviewer` last ran, beyond fixes of the findings it reported, and round 2 has not run, dispatch it now.
 
 ## Routing: which skill, agent or command for which need
 
@@ -214,7 +214,7 @@ Name a file the worker can open (a committed plan task, a spec, a commit range) 
 
 State the what, the limits and the check, not each step: the worker reads the code and works out the how. Independent briefs run in parallel in one message, with disjoint paths.
 
-Before you reply: if the project changed since `skeptical-reviewer` last ran and round 2 has not run, dispatch it now.
+Before you reply: if the project changed since `skeptical-reviewer` last ran, beyond fixes of the findings it reported, and round 2 has not run, dispatch it now.
 
 ## Routing: which skill, agent or command for which need
 
@@ -298,7 +298,7 @@ Name a file the worker can open (a committed plan task, a spec, a commit range) 
 
 State the what, the limits and the check, not each step: the worker reads the code and works out the how. Independent briefs run in parallel in one message, with disjoint paths.
 
-Before you reply: if the project changed since `skeptical-reviewer` last ran and round 2 has not run, dispatch it now.
+Before you reply: if the project changed since `skeptical-reviewer` last ran, beyond fixes of the findings it reported, and round 2 has not run, dispatch it now.
 
 ## Routing: which skill, agent or command for which need
 

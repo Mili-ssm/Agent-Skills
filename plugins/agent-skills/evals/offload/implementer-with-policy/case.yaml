@@ -43,7 +43,7 @@ execution:
 
     State the what, the limits and the check, not each step: the worker reads the code and works out the how. Independent briefs run in parallel in one message, with disjoint paths.
 
-    Before you reply: if the project changed since `skeptical-reviewer` last ran and round 2 has not run, dispatch it now.
+    Before you reply: if the project changed since `skeptical-reviewer` last ran, beyond fixes of the findings it reported, and round 2 has not run, dispatch it now.
   max_turns: 14
   timeout_seconds: 900
   allowed_tools: [Read, Glob, Grep, Skill, Agent, Bash, Edit, Write]
