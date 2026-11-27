@@ -10,6 +10,7 @@ Modules:
 `memory`: `remember`, `confirm` (and `observe`), `refute`, `forget`, `triage`, `supersede`, `merge`, `distinct`, `restore`, `promote`, `memories`, `rules`, `memory` (edit) and `settle`
 `curate`: `curate`, and the session-start curation decisions (passes, marks, pair and note queues)
 `hooks`: `session-index`, `compact-log` and `signal`, with the session start text and the logic only they use
+`install`: `install-command`, which puts a `mem` launcher on PATH, and the plugin-root record the launcher follows
 `synthesis`: `synthesis` (list, new, add, append, edit, attach, rename, remove, detach, topics, refs) and `project-synthesis`, with the logic only they use
 `integrate`: `synthesis integrate`, which joins knowledge notes to parts of a synthesis (registered by `mem`, not by the synthesis dispatch, because it imports `synthesis`)
 """

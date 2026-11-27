@@ -7,6 +7,13 @@
         "source": "local",
         "path": "./ports/codex/agent-skills"
       }
+    },
+    {
+      "name": "memory",
+      "source": {
+        "source": "local",
+        "path": "./plugins/memory"
+      }
     }
   ]
 }

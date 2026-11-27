@@ -7,6 +7,23 @@ ADR 0023; see the [stage plan](../../docs/superpowers/plans/2026-11-17-memory-pl
 
 `/plugin install memory --marketplace Mili-ssm/Agent-Skills`
 
+Optional, once per machine: `mem install-command` writes a launcher to `~/.local/bin/mem` (`--bin-dir` to choose, `--remove` to undo), so plain `mem` works in every tool and in a terminal without the plugin's `PATH`. The launcher runs the plugin copy the last session started from (each session start records it), so updates need no reinstall (ADR 0036).
+
+## Codex (core only; ADR 0036)
+
+Codex loads this same folder through `.codex-plugin/plugin.json`: the session index and the subagent line, with no Claude-only names. Not in Codex: the `memory-*` subagents, background passes, compaction and session-end hooks, plugin options (the store comes from `~/.config/agent-memory/store` or the default store, shared with Claude Code on the same machine).
+
+1. `codex plugin marketplace add Mili-ssm/Agent-Skills`, then `codex plugin add memory@mili-ssm`.
+2. Trust the plugin's hooks when Codex asks (again after each update that changes a hook script); untrusted hooks are skipped without a warning, so no index means untrusted.
+3. Codex's `workspace-write` sandbox blocks `mem` (`uv` cannot take its lock in `~/.cache/uv`) and writes to the global store. Add to `~/.codex/config.toml`, with absolute paths (plus your `store` folder if you set one):
+
+   ```toml
+   [sandbox_workspace_write]
+   writable_roots = ["/home/<you>/.cache/uv", "/home/<you>/.local/state/agent-memory", "/home/<you>/.local/share/agent-memory"]
+   ```
+
+4. Run `mem install-command` once (above); until then the session text gives the full path of `mem`.
+
 ## Requirements
 
 [`uv`](https://docs.astral.sh/uv/) on the path. Without it `mem` and the background passes (`mem-auto`, `mem-capture`, `mem-corroborate`, `mem-integrate`, `mem-research`, `mem-settle`, `mem-synthesize`) exit 127, and the session start text says so; no system `python3` is needed (ADR 0035). Every `bin/` file is a small launcher that starts `engine/run.py` through `uv`, so Python caches the compiled engine and one environment serves all of them; with a read-only plugin folder it still works, compiling each time. After a plugin update the first run needs the network once, to build that environment.
@@ -53,7 +70,7 @@ A project can also keep stamped syntheses in `.memory/syntheses/` (`organization
 
 ## Subagents
 
-They keep the main conversation's context on the task. To have the main model delegate to them, the plugin's `SessionStart` hook prints [`user-config/offload-policy.md`](user-config/offload-policy.md) at session start, after `/clear` and after a compaction (implemented, ADR 0032; no eval covers this table's delivery yet): one row per subagent with when to delegate, the call and what comes back. The hook is silent when the option `offload_table` is `false` (`/plugin configure memory@mili-ssm`) and when `~/.claude/CLAUDE.md` already holds the table's heading; turn the option off if the table reaches the session another way (an `@import`, a project `CLAUDE.md`, account instructions), or it loads twice. Copilot CLI and Codex users, and users who prefer the pasted copy, paste it into their user-level instructions file. With agent-skills installed, paste it right below that plugin's offload block, between the same kind of markers (`<!-- Pasted unchanged from Agent-Skills plugins/memory/user-config/offload-policy.md at <commit> -->` … `<!-- End of memory offload-policy.md -->`), and paste it again after an update that changes it. A table in the system prompt is what made delegation reliable for agent-skills (ADR 0010); descriptions alone did not.
+They keep the main conversation's context on the task. To have the main model delegate to them, the plugin's `SessionStart` hook prints [`user-config/offload-policy.md`](user-config/offload-policy.md) at session start, after `/clear` and after a compaction (implemented, ADR 0032; no eval covers this table's delivery yet): one row per subagent with when to delegate, the call and what comes back. The hook is silent when the option `offload_table` is `false` (`/plugin configure memory@mili-ssm`) and when `~/.claude/CLAUDE.md` already holds the table's heading; turn the option off if the table reaches the session another way (an `@import`, a project `CLAUDE.md`, account instructions), or it loads twice. Copilot CLI users, and users who prefer the pasted copy, paste it (Codex has none of these subagents) into their user-level instructions file. With agent-skills installed, paste it right below that plugin's offload block, between the same kind of markers (`<!-- Pasted unchanged from Agent-Skills plugins/memory/user-config/offload-policy.md at <commit> -->` … `<!-- End of memory offload-policy.md -->`), and paste it again after an update that changes it. A table in the system prompt is what made delegation reliable for agent-skills (ADR 0010); descriptions alone did not.
 
 | Subagent | Given | Does | Returns |
 |---|---|---|---|

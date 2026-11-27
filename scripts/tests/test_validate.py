@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 import subprocess
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
+import validate
 from conftest import EXTRA_AGENT, MEMORY_AGENT, MEMORY_SKILL, SKILL, run_checks
 
-import validate
+if TYPE_CHECKING:
+    from pathlib import Path
 
 PLUGIN = "plugins/agent-skills"
 SKILL_MD = f"{PLUGIN}/skills/{SKILL}/SKILL.md"
@@ -48,7 +50,9 @@ def test_skill_name_differs_from_folder(mini_repo):
 
 def test_description_without_trigger(mini_repo):
     edit(mini_repo, SKILL_MD, "Explains the demo. Use when a demo is needed.", "Explains the demo.")
-    assert run_checks(mini_repo) == [f"{SKILL_MD}: description must state its trigger ('Use when…')"]
+    assert run_checks(mini_repo) == [
+        f"{SKILL_MD}: description must state its trigger ('Use when…')"
+    ]
 
 
 def test_description_first_person(mini_repo):
@@ -57,7 +61,12 @@ def test_description_first_person(mini_repo):
 
 
 def test_quoted_we_passes(mini_repo):
-    edit(mini_repo, SKILL_MD, "Explains the demo.", 'Explains the demo for questions such as "what do we know about X".')
+    edit(
+        mini_repo,
+        SKILL_MD,
+        "Explains the demo.",
+        'Explains the demo for questions such as "what do we know about X".',
+    )
     assert run_checks(mini_repo) == []
 
 
@@ -91,12 +100,16 @@ def test_description_over_max_length(mini_repo):
 
 def test_description_starts_with_trigger(mini_repo):
     edit(mini_repo, SKILL_MD, "Explains the demo. Use when", "Use when")
-    assert run_checks(mini_repo) == [f"{SKILL_MD}: description must say what it does before 'Use when…'"]
+    assert run_checks(mini_repo) == [
+        f"{SKILL_MD}: description must say what it does before 'Use when…'"
+    ]
 
 
 def test_skill_says_use_proactively(mini_repo):
     edit(mini_repo, SKILL_MD, "Use when a demo", "Use proactively when a demo")
-    assert run_checks(mini_repo) == [f"{SKILL_MD}: only offload workers may say 'Use proactively' (ADR 0010)"]
+    assert run_checks(mini_repo) == [
+        f"{SKILL_MD}: only offload workers may say 'Use proactively' (ADR 0010)"
+    ]
 
 
 def test_skill_name_format(mini_repo):
@@ -106,12 +119,15 @@ def test_skill_name_format(mini_repo):
     bad = f"{PLUGIN}/skills/Bad_Name/SKILL.md"
     silent = f"{GRADERS}/no-trigger/neg-demo/graders/silent.md"
     fired = f"{GRADERS}/trigger/{SKILL}/graders/fired.md"
-    assert run_checks(mini_repo) == [
-        f"{bad}: name must be <= 64 chars of lowercase letters, digits, hyphens",
-        f"{silent}: pattern names unknown skill '{SKILL}'",  # the graders still name the renamed skill
-        f"{silent}: no-trigger pattern misses skill(s) Bad_Name",
-        f"{fired}: pattern names unknown skill '{SKILL}'",
-    ]
+    assert (
+        run_checks(mini_repo)
+        == [
+            f"{bad}: name must be <= 64 chars of lowercase letters, digits, hyphens",
+            f"{silent}: pattern names unknown skill '{SKILL}'",  # the graders still name the renamed skill
+            f"{silent}: no-trigger pattern misses skill(s) Bad_Name",
+            f"{fired}: pattern names unknown skill '{SKILL}'",
+        ]
+    )
 
 
 def test_skill_over_line_budget(mini_repo):
@@ -122,17 +138,25 @@ def test_skill_over_line_budget(mini_repo):
 
 def test_reference_nested_folder(mini_repo):
     put(mini_repo, f"{PLUGIN}/skills/{SKILL}/references/deep/inner.md", "Inner.\n")
-    assert run_checks(mini_repo) == [f"{PLUGIN}/skills/{SKILL}/references/deep: nested folder in references/ (keep it one level deep)"]
+    assert run_checks(mini_repo) == [
+        f"{PLUGIN}/skills/{SKILL}/references/deep: nested folder in references/ (keep it one level deep)"
+    ]
 
 
 def test_long_reference_without_contents(mini_repo):
     ref = f"{PLUGIN}/skills/{SKILL}/references/long.md"
     put(mini_repo, ref, "# Long\n" + "line\n" * 100)
-    assert run_checks(mini_repo) == [f"{ref}: > 100 lines without a '## Contents' heading in the first 15"]
+    assert run_checks(mini_repo) == [
+        f"{ref}: > 100 lines without a '## Contents' heading in the first 15"
+    ]
 
 
 def test_long_reference_with_contents_passes(mini_repo):
-    put(mini_repo, f"{PLUGIN}/skills/{SKILL}/references/long.md", "# Long\n\n## Contents\n\n" + "line\n" * 100)
+    put(
+        mini_repo,
+        f"{PLUGIN}/skills/{SKILL}/references/long.md",
+        "# Long\n\n## Contents\n\n" + "line\n" * 100,
+    )
     assert run_checks(mini_repo) == []
 
 
@@ -145,7 +169,9 @@ def test_reference_links_another_reference(mini_repo):
     base = f"{PLUGIN}/skills/{SKILL}/references"
     put(mini_repo, f"{base}/a.md", "See [b](b.md).\n")
     put(mini_repo, f"{base}/b.md", "B.\n")
-    assert run_checks(mini_repo) == [f"{base}/a.md: links another reference 'b.md' (link it from SKILL.md)"]
+    assert run_checks(mini_repo) == [
+        f"{base}/a.md: links another reference 'b.md' (link it from SKILL.md)"
+    ]
 
 
 # --- agents ---------------------------------------------------------------------------------------------------
@@ -166,7 +192,12 @@ def test_agent_invalid_model(mini_repo):
 
 def test_agent_full_model_id_passes(mini_repo):
     edit(mini_repo, AGENT_MD, "model: haiku", "model: claude-haiku-4-5")
-    edit(mini_repo, "README.md", f"| `{EXTRA_AGENT}` | haiku |", f"| `{EXTRA_AGENT}` | claude-haiku-4-5 |")
+    edit(
+        mini_repo,
+        "README.md",
+        f"| `{EXTRA_AGENT}` | haiku |",
+        f"| `{EXTRA_AGENT}` | claude-haiku-4-5 |",
+    )
     assert run_checks(mini_repo) == []
 
 
@@ -182,17 +213,23 @@ def test_agent_name_differs_from_file(mini_repo):
 
 def test_worker_without_max_turns(mini_repo):
     edit(mini_repo, WORKER_MD, "maxTurns: 10\n", "")
-    assert run_checks(mini_repo) == [f"{WORKER_MD}: worker must set 'maxTurns' to a positive integer"]
+    assert run_checks(mini_repo) == [
+        f"{WORKER_MD}: worker must set 'maxTurns' to a positive integer"
+    ]
 
 
 def test_worker_with_zero_max_turns(mini_repo):
     edit(mini_repo, WORKER_MD, "maxTurns: 10", "maxTurns: 0")
-    assert run_checks(mini_repo) == [f"{WORKER_MD}: 'maxTurns' must be a positive integer (got '0')"]
+    assert run_checks(mini_repo) == [
+        f"{WORKER_MD}: 'maxTurns' must be a positive integer (got '0')"
+    ]
 
 
 def test_agent_effort_outside_allowed_set(mini_repo):
     edit(mini_repo, AGENT_MD, "effort: low", "effort: xhigh")
-    assert run_checks(mini_repo) == [f"{AGENT_MD}: 'effort' must be high | low | medium (got 'xhigh')"]
+    assert run_checks(mini_repo) == [
+        f"{AGENT_MD}: 'effort' must be high | low | medium (got 'xhigh')"
+    ]
 
 
 def test_agent_omit_claude_md_not_boolean(mini_repo):
@@ -219,7 +256,9 @@ def test_check_ports_keeps_its_own_repeated_lines(mini_repo, monkeypatch):
 
 def test_agent_effort_as_list_is_reported_not_crashing(mini_repo):
     edit(mini_repo, AGENT_MD, "effort: low", "effort:\n  - low")
-    assert run_checks(mini_repo) == [f"{AGENT_MD}: 'effort' must be high | low | medium (got ['low'])"]
+    assert run_checks(mini_repo) == [
+        f"{AGENT_MD}: 'effort' must be high | low | medium (got ['low'])"
+    ]
 
 
 def test_agent_max_turns_non_ascii_digit(mini_repo):
@@ -229,7 +268,9 @@ def test_agent_max_turns_non_ascii_digit(mini_repo):
 
 def test_non_worker_says_use_proactively(mini_repo):
     edit(mini_repo, AGENT_MD, "Use when asked for it.", "Use proactively when asked for it.")
-    assert run_checks(mini_repo) == [f"{AGENT_MD}: only offload workers may say 'Use proactively' (ADR 0010)"]
+    assert run_checks(mini_repo) == [
+        f"{AGENT_MD}: only offload workers may say 'Use proactively' (ADR 0010)"
+    ]
 
 
 def make_read_only(root: Path, tools: str = "[Read, Grep]", omit: bool = True) -> None:
@@ -255,8 +296,15 @@ def test_read_only_agent_grants_edit(mini_repo):
 
 def test_read_only_agent_without_disallowed_tools(mini_repo):
     make_read_only(mini_repo)
-    edit(mini_repo, AGENT_MD, "disallowedTools: [Edit, Write, NotebookEdit]\n", "disallowedTools: [Edit]\n")
-    assert run_checks(mini_repo) == [f"{AGENT_MD}: Read-only agent must list NotebookEdit, Write in disallowedTools"]
+    edit(
+        mini_repo,
+        AGENT_MD,
+        "disallowedTools: [Edit, Write, NotebookEdit]\n",
+        "disallowedTools: [Edit]\n",
+    )
+    assert run_checks(mini_repo) == [
+        f"{AGENT_MD}: Read-only agent must list NotebookEdit, Write in disallowedTools"
+    ]
 
 
 def test_read_only_agent_without_omit_claude_md(mini_repo):
@@ -266,7 +314,12 @@ def test_read_only_agent_without_omit_claude_md(mini_repo):
 
 def test_agent_preloads_unknown_skill(mini_repo):
     edit(mini_repo, AGENT_MD, "model: haiku\n", "model: haiku\nskills: [ghost]\n")
-    edit(mini_repo, "README.md", f"| `{EXTRA_AGENT}` | haiku | — |", f"| `{EXTRA_AGENT}` | haiku | ghost |")
+    edit(
+        mini_repo,
+        "README.md",
+        f"| `{EXTRA_AGENT}` | haiku | — |",
+        f"| `{EXTRA_AGENT}` | haiku | ghost |",
+    )
     assert run_checks(mini_repo) == [f"{AGENT_MD}: preloads unknown skill 'ghost'"]
 
 
@@ -310,7 +363,9 @@ def test_command_without_argument_hint(mini_repo):
 def test_command_model_invocable(mini_repo):
     cmd = f"{PLUGIN}/commands/{EXTRA_AGENT}.md"
     edit(mini_repo, cmd, "disable-model-invocation: true", "disable-model-invocation: false")
-    assert run_checks(mini_repo) == [f"{cmd}: commands must set disable-model-invocation: true (user-only)"]
+    assert run_checks(mini_repo) == [
+        f"{cmd}: commands must set disable-model-invocation: true (user-only)"
+    ]
 
 
 def test_non_worker_agent_without_command(mini_repo):
@@ -337,7 +392,11 @@ def test_offload_command_misses_worker_row(mini_repo):
 def test_trigger_grader_names_unknown_agent(mini_repo):
     grader = f"{GRADERS}/trigger/{SKILL}/graders/fired.md"
     # a trigger grader through subagent_type: same function, agent group
-    put(mini_repo, grader, "---\ntype: regex\npattern: 'subagent_type\\W{1,8}(agent-skills:)?ghost\\b'\n---\n")
+    put(
+        mini_repo,
+        grader,
+        "---\ntype: regex\npattern: 'subagent_type\\W{1,8}(agent-skills:)?ghost\\b'\n---\n",
+    )
     assert run_checks(mini_repo) == [f"{grader}: pattern names unknown agent 'ghost'"]
 
 
@@ -374,7 +433,9 @@ def test_policy_embed_differs(mini_repo):
 def test_policy_embed_missing_block(mini_repo):
     case = f"{GRADERS}/offload/summarizer-with-policy/case.yaml"
     put(mini_repo, case, "name: x\n")
-    assert run_checks(mini_repo) == [f"{case}: no 'append_system_prompt: |' block (it must embed the offload policy)"]
+    assert run_checks(mini_repo) == [
+        f"{case}: no 'append_system_prompt: |' block (it must embed the offload policy)"
+    ]
 
 
 def test_policy_file_missing(mini_repo):
@@ -390,12 +451,21 @@ def test_policy_file_missing(mini_repo):
 
 def test_readme_catalog_missing_agent(mini_repo):
     edit(mini_repo, "README.md", f"| `{EXTRA_AGENT}` | haiku | — | does it |\n", "")
-    assert run_checks(mini_repo) == [f"README.md: Agents table is missing a row for '{EXTRA_AGENT}'"]
+    assert run_checks(mini_repo) == [
+        f"README.md: Agents table is missing a row for '{EXTRA_AGENT}'"
+    ]
 
 
 def test_readme_catalog_extra_skill(mini_repo):
-    edit(mini_repo, "README.md", f"| `{SKILL}` | does it |", f"| `{SKILL}` | does it |\n| `ghost` | does it |")
-    assert run_checks(mini_repo) == ["README.md: Skills table has extra row 'ghost' (no such item in the plugin)"]
+    edit(
+        mini_repo,
+        "README.md",
+        f"| `{SKILL}` | does it |",
+        f"| `{SKILL}` | does it |\n| `ghost` | does it |",
+    )
+    assert run_checks(mini_repo) == [
+        "README.md: Skills table has extra row 'ghost' (no such item in the plugin)"
+    ]
 
 
 def test_readme_catalog_wrong_model(mini_repo):
@@ -406,7 +476,12 @@ def test_readme_catalog_wrong_model(mini_repo):
 
 
 def test_readme_catalog_wrong_preloads(mini_repo):
-    edit(mini_repo, "README.md", f"| `{EXTRA_AGENT}` | haiku | — |", f"| `{EXTRA_AGENT}` | haiku | {SKILL} |")
+    edit(
+        mini_repo,
+        "README.md",
+        f"| `{EXTRA_AGENT}` | haiku | — |",
+        f"| `{EXTRA_AGENT}` | haiku | {SKILL} |",
+    )
     assert run_checks(mini_repo) == [
         f"README.md: Agents table: '{EXTRA_AGENT}' preloads ['{SKILL}'], frontmatter says []"
     ]
@@ -414,7 +489,9 @@ def test_readme_catalog_wrong_preloads(mini_repo):
 
 def test_readme_catalog_missing_command(mini_repo):
     edit(mini_repo, "README.md", f"| `/agent-skills:{EXTRA_AGENT}` | does it |\n", "")
-    assert run_checks(mini_repo) == [f"README.md: Commands table is missing a row for '{EXTRA_AGENT}'"]
+    assert run_checks(mini_repo) == [
+        f"README.md: Commands table is missing a row for '{EXTRA_AGENT}'"
+    ]
 
 
 # --- public paths and versions --------------------------------------------------------------------------------
@@ -438,12 +515,16 @@ def test_readme_anchor_missing(mini_repo):
 
 def test_version_without_changelog_entry(mini_repo):
     edit(mini_repo, f"{PLUGIN}/.claude-plugin/plugin.json", "1.0.0", "1.1.0")
-    assert run_checks(mini_repo) == [f"{PLUGIN}/CHANGELOG.md: no heading '## [1.1.0] - YYYY-MM-DD' (ADR 0027)"]
+    assert run_checks(mini_repo) == [
+        f"{PLUGIN}/CHANGELOG.md: no heading '## [1.1.0] - YYYY-MM-DD' (ADR 0027)"
+    ]
 
 
 def test_version_not_semver(mini_repo):
     edit(mini_repo, f"{PLUGIN}/.claude-plugin/plugin.json", "1.0.0", "1.0")
-    assert run_checks(mini_repo) == [f"{PLUGIN}/.claude-plugin/plugin.json: 'version' is '1.0', expected SemVer X.Y.Z (ADR 0027)"]
+    assert run_checks(mini_repo) == [
+        f"{PLUGIN}/.claude-plugin/plugin.json: 'version' is '1.0', expected SemVer X.Y.Z (ADR 0027)"
+    ]
 
 
 def test_changelog_missing(mini_repo):
@@ -453,7 +534,15 @@ def test_changelog_missing(mini_repo):
 
 def test_marketplace_entry_carries_version(mini_repo):
     rel = ".claude-plugin/marketplace.json"
-    put(mini_repo, rel, json.dumps({"plugins": [{"name": "agent-skills", "source": "./plugins/agent-skills", "version": "1.0.0"}]}))
+    put(
+        mini_repo,
+        rel,
+        json.dumps({
+            "plugins": [
+                {"name": "agent-skills", "source": "./plugins/agent-skills", "version": "1.0.0"}
+            ]
+        }),
+    )
     assert run_checks(mini_repo) == [
         f"{rel}: entry 'agent-skills' carries 'version'; plugin.json is the only source (ADR 0027)"
     ]
@@ -515,7 +604,9 @@ def test_memory_agent_invalid_model(mini_repo):
 
 def test_memory_skill_second_person_description(mini_repo):
     edit(mini_repo, MEMORY_SKILL_MD, "Keeps notes.", "You keep notes.")
-    assert run_checks(mini_repo) == [f"{MEMORY_SKILL_MD}: description must be third person (found 'You')"]
+    assert run_checks(mini_repo) == [
+        f"{MEMORY_SKILL_MD}: description must be third person (found 'You')"
+    ]
 
 
 def test_memory_agent_preloads_skill_of_another_plugin(mini_repo):
@@ -524,7 +615,9 @@ def test_memory_agent_preloads_skill_of_another_plugin(mini_repo):
 
 
 def test_memory_agent_without_command_passes(mini_repo):
-    assert not list((mini_repo / MEMORY / "commands").glob("*")), "fixture gives the memory plugin no commands"
+    assert not list((mini_repo / MEMORY / "commands").glob("*")), (
+        "fixture gives the memory plugin no commands"
+    )
     assert run_checks(mini_repo) == []
 
 
@@ -538,14 +631,18 @@ def test_memory_agent_and_skill_say_use_proactively_fail(mini_repo):
     ])
 
 
-
 def test_run_checks_reports_a_drifted_shared_block(mini_repo):
     (mini_repo / "shared" / "fragments").mkdir(parents=True)
     (mini_repo / "shared" / "fragments" / "rule.md").write_text("Never guess.\n", encoding="utf-8")
     edit(mini_repo, AGENT_MD, "effort: low", "effort: low")  # file exists
     path = mini_repo / AGENT_MD
-    path.write_text(path.read_text(encoding="utf-8") + "\n<!-- shared:rule -->\nstale\n<!-- /shared:rule -->\n", encoding="utf-8")
-    assert run_checks(mini_repo) == [f"{AGENT_MD}: block 'rule' differs from shared/fragments/rule.md"]
+    path.write_text(
+        path.read_text(encoding="utf-8") + "\n<!-- shared:rule -->\nstale\n<!-- /shared:rule -->\n",
+        encoding="utf-8",
+    )
+    assert run_checks(mini_repo) == [
+        f"{AGENT_MD}: block 'rule' differs from shared/fragments/rule.md"
+    ]
 
 
 def test_memory_state_table_version_must_match_plugin_json(mini_repo):
@@ -556,7 +653,9 @@ def test_memory_state_table_version_must_match_plugin_json(mini_repo):
     manifest.write_text('{"name": "memory", "version": "0.2.0"}', encoding="utf-8")
     plan.write_text("| Released | `memory` 0.1.0 (see plugin.json) |\n", encoding="utf-8")
     validate.check_state_table_version(errors := [])
-    assert errors == ["docs/superpowers/plans/2026-11-17-memory-plugin.md: state table says released 0.1.0, plugin.json says 0.2.0"]
+    assert errors == [
+        "docs/superpowers/plans/2026-11-17-memory-plugin.md: state table says released 0.1.0, plugin.json says 0.2.0"
+    ]
     plan.write_text("| Released | `memory` 0.2.0 (see plugin.json) |\n", encoding="utf-8")
     validate.check_state_table_version(errors := [])
     assert errors == []
@@ -571,4 +670,95 @@ def test_memory_state_table_without_released_row_fails(mini_repo):
     plan.write_text("| Shipped | memory 0.2.0 |\n", encoding="utf-8")
     errors: list[str] = []
     validate.check_state_table_version(errors)
-    assert errors == ["docs/superpowers/plans/2026-11-17-memory-plugin.md: no '| Released | `memory` X.Y.Z' row in the state table"]
+    assert errors == [
+        "docs/superpowers/plans/2026-11-17-memory-plugin.md: no '| Released | `memory` X.Y.Z' row in the state table"
+    ]
+
+
+CODEX_MANIFEST = f"{MEMORY}/.codex-plugin/plugin.json"
+
+
+def codex_memory_repo(root: Path) -> None:
+    """The Codex catalog lists memory, whose Codex manifest mirrors the Claude one."""
+    claude = {"name": "memory", "version": "1.0.0", "description": "Keeps notes."}
+    put(root, f"{MEMORY}/.claude-plugin/plugin.json", json.dumps(claude))
+    codex = {
+        "name": "memory",
+        "version": "1.0.0",
+        "description": "Keeps notes.",
+        "hooks": "hooks/hooks.json",
+    }
+    put(root, CODEX_MANIFEST, json.dumps(codex))
+    put(root, f"{MEMORY}/hooks/hooks.json", "{}")
+    plugins = [
+        {"name": n, "source": {"source": "local", "path": f"./plugins/{n}"}}
+        for n in ("agent-skills", "memory")
+    ]
+    put(root, ".agents/plugins/marketplace.json", json.dumps({"plugins": plugins}))
+
+
+def codex_errors() -> list[str]:
+    errors: list[str] = []
+    validate.check_codex_manifest(errors)
+    return errors
+
+
+def test_codex_manifest_matching_passes(mini_repo):
+    codex_memory_repo(mini_repo)
+    assert codex_errors() == []
+
+
+def test_codex_manifest_is_not_required_without_a_memory_entry(mini_repo):
+    assert codex_errors() == []
+
+
+def test_codex_manifest_missing(mini_repo):
+    codex_memory_repo(mini_repo)
+    (mini_repo / CODEX_MANIFEST).unlink()
+    assert codex_errors() == [f"{CODEX_MANIFEST}: missing or not valid JSON (ADR 0036)"]
+
+
+@pytest.mark.parametrize("key", ["name", "version", "description"])
+def test_codex_manifest_key_differs(mini_repo, key):
+    codex_memory_repo(mini_repo)
+    manifest = json.loads((mini_repo / CODEX_MANIFEST).read_text(encoding="utf-8"))
+    manifest[key] = "other"
+    put(mini_repo, CODEX_MANIFEST, json.dumps(manifest))
+    [error] = codex_errors()
+    assert f"'{key}' is 'other'" in error
+
+
+def test_codex_manifest_hooks_file_missing(mini_repo):
+    codex_memory_repo(mini_repo)
+    (mini_repo / MEMORY / "hooks" / "hooks.json").unlink()
+    [error] = codex_errors()
+    assert "'hooks' 'hooks/hooks.json' does not name a file" in error
+
+
+def test_codex_manifest_without_hooks_key(mini_repo):
+    codex_memory_repo(mini_repo)
+    manifest = json.loads((mini_repo / CODEX_MANIFEST).read_text(encoding="utf-8"))
+    del manifest["hooks"]
+    put(mini_repo, CODEX_MANIFEST, json.dumps(manifest))
+    [error] = codex_errors()
+    assert "'hooks' None" in error
+
+
+def test_codex_manifest_with_broken_claude_manifest(mini_repo):
+    codex_memory_repo(mini_repo)
+    put(mini_repo, f"{MEMORY}/.claude-plugin/plugin.json", "{bad json")
+    assert codex_errors() == [
+        f"{MEMORY}/.claude-plugin/plugin.json: missing or not valid JSON (ADR 0036)"
+    ]
+
+
+def test_codex_catalog_not_valid_json(mini_repo):
+    put(mini_repo, ".agents/plugins/marketplace.json", "{bad json")
+    [error] = codex_errors()
+    assert "without a 'plugins' list" in error
+
+
+def test_codex_catalog_entry_not_an_object(mini_repo):
+    put(mini_repo, ".agents/plugins/marketplace.json", json.dumps({"plugins": ["x"]}))
+    [error] = codex_errors()
+    assert "plugin entry 'x' is not an object" in error

@@ -220,6 +220,13 @@ CODEX = Target(
     "user-config/routing.codex.md",
 )
 TARGETS = (COPILOT, CODEX)
+# Plugins a catalog lists beside agent-skills, served from their source folder with no generated copy (ADR 0036).
+SOURCE_PLUGINS: dict[str, dict[str, str]] = {"codex": {"memory": "plugins/memory"}}
+
+
+def catalog_plugins(target: Target) -> list[tuple[str, str]]:
+    """(name, folder) of each plugin the target's catalog lists, in order."""
+    return [(PLUGIN_NAME, target.dir), *SOURCE_PLUGINS.get(target.key, {}).items()]
 
 
 class PortError(Exception):
@@ -680,7 +687,7 @@ class Generator:
                 )
 
     def catalogs(self) -> None:
-        """One marketplace file per tool, listing only agent-skills."""
+        """One marketplace file per tool: agent-skills, plus the source plugins of `SOURCE_PLUGINS`."""
         plugin = self.src.plugin
         owner = self.src.marketplace["owner"]["name"]
         copilot = {
@@ -698,10 +705,8 @@ class Generator:
         codex = {
             "name": MARKETPLACE,
             "plugins": [
-                {
-                    "name": PLUGIN_NAME,
-                    "source": {"source": "local", "path": f"./{CODEX.dir}"},
-                }
+                {"name": name, "source": {"source": "local", "path": f"./{folder}"}}
+                for name, folder in catalog_plugins(CODEX)
             ],
         }
         self.put(COPILOT.catalog, dumps_json(copilot))
@@ -1196,7 +1201,7 @@ class Verifier:
             check.eq("description", got.get("description"), plugin.get("description"))
 
     def catalog(self, target: Target) -> None:
-        """The catalog lists only agent-skills, and its source folder exists and is the tool's plugin."""
+        """The catalog lists exactly the target's plugins; each source folder exists and is the expected one."""
         got = self.json_file(target.catalog)
         if got is None:
             return
@@ -1204,12 +1209,13 @@ class Verifier:
         plugins = got.get("plugins")
         listed = plugins if isinstance(plugins, list) else []
         check.eq("name", got.get("name"), self.src.marketplace.get("name"))
-        check.eq("listed plugins", [p.get("name") for p in listed], [PLUGIN_NAME])
-        for entry in listed:
+        expected = catalog_plugins(target)
+        check.eq("listed plugins", [p.get("name") for p in listed], [name for name, _ in expected])
+        for entry, (_, folder) in zip(listed, expected, strict=False):
             source = entry.get("source")
             path = str(source.get("path") if isinstance(source, dict) else source)
             check.ok((ROOT / path).is_dir(), f"source {path!r} is not a folder")
-            check.eq("source", path.removeprefix("./"), target.dir)
+            check.eq("source", path.removeprefix("./"), folder)
 
     def policy(self, target: Target) -> None:
         text = self.read(target.policy)
