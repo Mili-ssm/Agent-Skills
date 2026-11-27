@@ -35,3 +35,20 @@ def test_hook_log_carries_the_host(tmp_path, monkeypatch, host, logged):
     assert hook_run(monkeypatch, tmp_path, json.dumps({"cwd": str(tmp_path)})) == 0
     line = (tmp_path / "data" / "hooks" / "log.jsonl").read_text().splitlines()[-1]
     assert json.loads(line)["host"] == logged
+
+
+@pytest.mark.parametrize(
+    ("claude_text", "codex_text"),
+    [
+        ("preferences and personal matters -> auto memory; what", "what"),
+        (
+            "; the project's current situation -> both.",
+            "; the project's current situation -> mem remember too.",
+        ),
+    ],
+)
+def test_codex_rules_replacements_still_match(claude_text, codex_text):
+    # str.replace is silent on no match: a rewording of _INDEX_RULES must fail here, not leak into Codex.
+    assert claude_text in hooks._INDEX_RULES
+    assert claude_text not in hooks._INDEX_RULES_CODEX
+    assert codex_text in hooks._INDEX_RULES_CODEX
