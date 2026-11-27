@@ -28,11 +28,14 @@ def _content_lines(answer: str) -> list[str] | None:
 def answer_lines(answer: str) -> list[str] | None:
     """The answer's lines (fence and blank lines dropped), or None.
 
-    None when it is empty, any line is neither a row, `none` nor a `#` comment, a line starts with a fence
-    but is not just a fence, or `none` comes with a row (a contradictory answer applies nothing).
+    None when it is empty or only comments (it decides nothing), any line is neither a row, `none` nor a `#`
+    comment, a line starts with a fence but is not just a fence, or `none` comes with a row (a contradictory
+    answer applies nothing).
     """
     lines = _content_lines(answer)
-    if lines is None or not lines or not all(_is_valid(line) for line in lines):
+    if lines is None or not all(_is_valid(line) for line in lines):
+        return None
+    if all(line.startswith("#") for line in lines):
         return None
     if "none" in lines and any(line != "none" and not line.startswith("#") for line in lines):
         return None

@@ -7,7 +7,7 @@ missing or unreadable reads as empty, so a damaged state costs a repeated check,
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from typing import TYPE_CHECKING
 
 from core import safe_io
@@ -19,6 +19,7 @@ type Done = dict[str, str]
 
 DONE_FILE = "done.json"
 RECORD_FILE = "record.json"
+STATE_MODE = 0o600
 
 
 @dataclass
@@ -42,7 +43,7 @@ class RunRecord:
 
 def _write_json(path: Path, data: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    safe_io.replace_file(path, json.dumps(data, indent=2).encode("utf-8"))
+    safe_io.replace_file(path, json.dumps(data, indent=2).encode("utf-8"), mode=STATE_MODE)
 
 
 def _read_json(path: Path) -> object:
@@ -79,12 +80,18 @@ def write_record(folder: Path, record: RunRecord) -> None:
     _write_json(folder / record.run_id / RECORD_FILE, asdict(record))
 
 
+def _known[T](cls: type[T], data: dict) -> dict:
+    """`data` without the keys `cls` does not have: a record written by a newer version still reads."""
+    names = {f.name for f in fields(cls)}  # type: ignore[arg-type]
+    return {k: v for k, v in data.items() if k in names}
+
+
 def read_record(folder: Path, run_id: str) -> RunRecord | None:
     data = _read_json(folder / run_id / RECORD_FILE)
     if not isinstance(data, dict):
         return None
     try:
-        groups = [GroupRecord(**g) for g in data.pop("groups", [])]
-        return RunRecord(**data, groups=groups)
+        groups = [GroupRecord(**_known(GroupRecord, g)) for g in data.pop("groups", [])]
+        return RunRecord(**_known(RunRecord, data), groups=groups)
     except (TypeError, AttributeError):
         return None

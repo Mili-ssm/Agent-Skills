@@ -125,3 +125,9 @@ def test_fenced_answer_end_to_end():
     rows, refused = placement_rows(lines, _offered("n1", "n2"))
     assert rows == [Row("n1", TARGET, "append", None, FP)]
     assert refused == ["n2: no such unit 5"]
+
+
+def test_comment_only_answer_decides_nothing():
+    assert answer_lines("# nothing fits\n# really") is None
+    assert answer_lines(f"# note\nn1 | {TARGET} | append | {FP}") is not None
+    assert answer_lines("# note\nnone") == ["# note", "none"]
