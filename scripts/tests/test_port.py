@@ -314,3 +314,50 @@ def test_checker_rejects_a_missing_or_mispathed_memory_entry(
     verifier.src = cast("port.Sources", SimpleNamespace(marketplace={"name": port.MARKETPLACE}))
     verifier.catalog(port.CODEX)
     assert any(fragment in e for e in verifier.errors), verifier.errors
+
+
+# --- Codex wording rewrites ---------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def sources():
+    src, errors = port.load_sources()
+    assert errors == []
+    return src
+
+
+def _source_text(src, key):
+    """The Claude source text a CODEX_REWRITES key names."""
+    name, _, part = key.partition(":")
+    if name == "user-config/offload-policy.md":
+        return src.policy
+    if name == "user-config/routing.md":
+        return src.routing
+    folder, _, stem = name.partition("/")
+    doc = {"agents": src.agents, "commands": src.commands}[folder][stem.removesuffix(".md")]
+    return doc.fm["description"] if part else doc.body
+
+
+@pytest.mark.parametrize("key", sorted(port.CODEX_REWRITES))
+def test_codex_rewrites_apply_to_the_real_sources(sources, key):
+    text = _source_text(sources, key)
+    out = port.codex_rewrite(text, key)
+    for old, new in port.CODEX_REWRITES[key]:
+        assert old in text
+        assert old not in out
+        assert new in out
+
+
+@pytest.mark.parametrize("key", sorted(port.CODEX_REWRITES))
+def test_codex_rewrites_fail_when_the_source_text_is_gone(key):
+    with pytest.raises(port.PortError, match="source text not found"):
+        port.codex_rewrite("a source that no longer says it", key)
+
+
+def test_codex_rewrites_leave_copilot_and_unkeyed_text_alone(sources):
+    key = "user-config/routing.md"
+    text = _source_text(sources, key)
+    assert "slash commands in Claude Code" in port.transform(
+        text, port.COPILOT, AGENTS, rewrites=key
+    )
+    assert port.transform("plain", port.CODEX, AGENTS) == "plain"
