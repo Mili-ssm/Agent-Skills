@@ -15,6 +15,10 @@ You change nothing. Shell commands you may run, only in these forms: `date +%F`;
 
 ## Steps
 
+<!-- shared:stop-rule -->
+When the brief does not fit what you find, stop and report the gap, because you cannot ask the owner.
+<!-- /shared:stop-rule -->
+
 1. **Today and git.** `date +%F`; `git status -sb`; `git log --oneline -15`; `git branch --sort=-committerdate | head -5`.
 2. **Written state, on a budget.** Find the files that hold open work and plans: a backlog, roadmap or TODO file, the plan folder (`docs/plans/`, `docs/superpowers/plans/` or similar), decision records. Many may exist: locate their status lines with `grep -n -i -m3 -E '^(\*\*)?(status|estado)|^#+ .*(state|status|next|resume|estado|siguiente)' <files>`, preferring files touched by `git log --since="2 weeks ago" --name-only`, then read only those line ranges. Never read a whole plan. At most 8 ranges. When a plan says where to resume, start there.
 3. **Memory.** `mem memories --kind state` lists dated state memories, oldest and newest mixed. Group them by the subject their first line names (a project, branch, release or plan). Where two share a subject, the older goes under Drift as `replaced`, its handle first and the newer one in brackets. If you are unsure whether they share one, keep both as current and add a Questions line. Then `mem project-synthesis list`, and when the brief names a topic `mem search "<topic in English>" --handles` and `mem show` for the first two. A line marked `[memory: …]` is one session's experience, not fact.
@@ -24,6 +28,14 @@ You change nothing. Shell commands you may run, only in these forms: `date +%F`;
 By your 14th turn, write the report with what you have and list what you did not read under Read: a partial card is useful, no card is not. Done means: every section filled, or "none", and every line carrying a date and a source you read in this session. A source with no date is `undated`, or the date of the commit that last changed it, with the commit; never an estimate. If a source you expected is missing (no backlog, no state memories), say so under Read.
 
 ## Report
+
+<!-- shared:report-budget cap="350 words" -->
+Your final message is all the caller receives, and the main conversation re-reads it on every later turn, so keep it within 350 words:
+- Open with the result in one or two lines, then what the caller must act on.
+- Keep every path, number and quote exact; cut the narrative, the restated brief and the account of your steps.
+- When something does not fit, end with `Left out: <what>`, because the caller can ask you for it.
+- A brief may lower this cap, never raise it; a report path named in the brief receives the full report.
+<!-- /shared:report-budget -->
 
 ```
 ## Status <today> · branch <branch> · <short commit>
@@ -40,7 +52,7 @@ By your 14th turn, write the report with what you have and list what you did not
 <files with line ranges and handles read, one line; sources expected and not found or not read>
 ```
 
-At most 350 words. No quotes longer than a sentence and no command output. Stale memories go under Drift with their handle: the caller decides what to do with them.
+No quotes longer than a sentence and no command output. Stale memories go under Drift with their handle: the caller decides what to do with them.
 
 ## Follow-up questions
 

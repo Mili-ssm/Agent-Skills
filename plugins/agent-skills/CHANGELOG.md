@@ -4,6 +4,24 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-27
+
+### Added
+
+- Workflow `plan-task` (pilot, Claude Code only, unmeasured): runs one plan task through `implementer`, `skeptical-reviewer` on its commits and one verified fix round, and returns only the final result to the main conversation. Start it yourself with the task file and its checks; adoption waits for the pilot comparison (ADR 0039).
+
+### Changed
+
+- The offload text counts calls before tokens: join independent commands, delegate an episode of about eight or more of your own calls (twelve when the worker writes code), give a worker one outcome, and end the turn with a one-line status instead of writing messages while a worker runs. A row's own threshold still wins. Re-paste the offload policy and routing from `user-config/` (Codex: re-copy the `.codex.md` files).
+- `skeptical-reviewer` reports put only medium and high findings in the table (no `Category` column) and give each low finding one hedged line, `<where> — <doubt>`; when the report would pass its cap, low lines are replaced by `Left out: K low findings`. A brief may name a commit range or a task file instead of pasting text. The offload text and routing now review one change once: a change a review already covered is not reviewed again, round 2 runs only when the fix reaches beyond the findings, a plan ends with at most three narrow reviews, and in a plan-loop fix round the fix worker verifies each finding first and lists the refuted ones with the line that refutes each. Re-paste the offload policy and routing.
+- The worker brief has four parts (goal, scope, decisions, checks) and points at files the worker can open instead of restating them; the stop rule and report format now live in each worker. If you pasted the offload table or the routing text into your own instructions, paste the new versions from `user-config/`.
+- Worker agents (`skeptical-reviewer`, `implementer`, `fixer`, `check-runner`, `ui-verifier`, `pre-mortem`, `summarizer`, `researcher`) now cap their final report in words through one shared rule (`Left out:` names what was cut; a brief may lower the cap, never raise it), because line caps did not bound length and the main conversation re-reads every report. `doc-curator` gains a stop rule. Reinstall `user-agents/Explore.md` to get its 600-word cap (it replaces "30 lines").
+- Codex: the offload policy now says to wait with `wait_agent` (it wakes on any worker's message) instead of writing messages while a worker runs, and the routing text names `AGENTS.md` only. Re-copy the `.codex.md` files.
+
+### Fixed
+
+- Codex: the offload policy now tells Codex to spawn every worker with `fork_turns` set to `"none"`. Without it Codex copies the whole parent conversation into each worker: in local rollouts (Codex 0.171, Nov 2026) 29 of 30 worker spawns did so, and a worker's first request carried a median of 118k input tokens instead of 25.6k, about 1.3M instead of 0.4M input tokens per worker over its run. The role's model and effort were honored either way. Re-copy `user-config/offload-policy.codex.md` into your Codex instructions.
+
 ## [1.4.2] - 2026-11-27
 
 ### Fixed

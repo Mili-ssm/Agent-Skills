@@ -40,7 +40,13 @@ The plan/spec/design from the task. No plan in the task → use the only plan fi
 
 ## Output
 
-Keep the report ≤ 70 lines, because it lands in the main conversation's context: failure stories ≤ 2 lines each; the risk table lists medium and high risks, low ones as a count.
+Your final message is all the caller receives, and the main conversation re-reads it on every later turn, so keep it within 900 words:
+- Open with the result in one or two lines, then what the caller must act on.
+- Keep every path, number and quote exact; cut the narrative, the restated brief and the account of your steps.
+- When something does not fit, end with `Left out: <what>`, because the caller can ask you for it.
+- A brief may lower this cap, never raise it; a report path named in the brief receives the full report.
+
+Failure stories ≤ 2 lines each; the risk table lists medium and high risks, low ones as a count.
 
 ```markdown
 ## Verdict

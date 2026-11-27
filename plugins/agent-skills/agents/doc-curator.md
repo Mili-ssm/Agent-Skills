@@ -47,6 +47,10 @@ Follow the compression workflow in `docs-principles`. Agent-specific additions:
 - Delegation rules in CLAUDE.md address the main conversation; you cannot dispatch subagents or ask the owner, so do the work yourself.
 <!-- /shared:delegation-addresses-main -->
 
+<!-- shared:stop-rule -->
+When the brief does not fit what you find, stop and report the gap, because you cannot ask the owner.
+<!-- /shared:stop-rule -->
+
 ## Output
 
 Keep the report ≤ 25 findings, grouped by type (false and stale first, because wrong facts mislead most), the rest as counts per type. Metrics only for files edited or proposed for compression.

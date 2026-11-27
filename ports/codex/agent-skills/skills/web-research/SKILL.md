@@ -27,7 +27,7 @@ The main model reasons; the `researcher` subagent (gpt-6-luna) searches and read
 
 ## Output contract (the `researcher` returns it)
 
-Return this shape in ≤ 300 words unless the brief says otherwise:
+Return this shape in ≤ 300 words (a brief may lower this cap, never raise it):
 
 ```markdown
 ## Answer
