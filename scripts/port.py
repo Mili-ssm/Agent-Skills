@@ -202,6 +202,10 @@ CODEX_REWRITES: dict[str, tuple[tuple[str, str], ...]] = {
                 "The worker then sees none of this conversation,"
             ),
         ),
+        (
+            "end your turn with a one-line status instead of writing messages while you wait",
+            "wait for it with `wait_agent` instead of writing messages while you wait",
+        ),
     ),
     "user-config/routing.md": (
         (

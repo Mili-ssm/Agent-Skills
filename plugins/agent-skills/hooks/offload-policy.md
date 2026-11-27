@@ -16,6 +16,13 @@ Delegate before pulling large sources, logs or command output into this context,
 
 Keep inline: decisions, edits under ~20 lines, integrating results, reading a range you located with grep, and a short check with its output cut (`| tail`, `-q`), because a dispatch costs more than its few lines. A task whose design is still open is not delegated: settle it here, or ask the owner, then brief it.
 
+Every call re-reads this whole context, so count calls before tokens:
+
+- Join commands that do not need each other's output in one shell call, and send independent tool calls in one message. A lookup of up to ~3 steps stays here as one call.
+- Delegate an episode you expect to take eight or more calls of your own (twelve when the worker writes code), or to print more than ~8k tokens you will not need word for word, when a short answer can replace it. A dispatch costs this context about as much as five to eight of your calls (brief, report, notices and what you re-read afterwards), so smaller work is cheaper batched here. A row above with its own threshold (a long file to `summarizer`, a long command to `check-runner`, plan code to `implementer`) keeps it; this rule covers the rest.
+- Give a worker one outcome. Split a brief with several goals or more than about five focus points, because a worker that runs out of turns returns nothing.
+- When you have nothing to do until a worker returns, end your turn with a one-line status instead of writing messages while you wait, because each one re-reads this context.
+
 A worker sees none of this conversation, so its brief carries what only this conversation knows:
 
 1. **Goal** and acceptance criteria it can check itself: one outcome per brief.
