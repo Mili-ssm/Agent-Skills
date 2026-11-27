@@ -165,6 +165,7 @@ def rig(base: Path, name: str, **script: Any) -> Rig:
         work,
         rr.trial_env_for(work),
         base=root / "base",
+        projects=root / "projects",
         runs=3,
         max_cost=50.0,
         skip_capture_check=True,
@@ -505,8 +506,8 @@ def check_compare_requests() -> None:
         "block text: present in both",
         "difference: the lesson line only",
     ], lines
-    appended = replay.block_r(r0, LESSON, None)  # adds a heading too: more than the lesson line
-    lines, ok = rr.compare_requests(request(r0), request(appended), LESSON)
+    two_lines = r + f"\n- {LESSON} again"  # more than the lesson line
+    lines, ok = rr.compare_requests(request(r0), request(two_lines), LESSON)
     assert not ok and lines[-1].startswith("difference: ") and "only" not in lines[-1], lines
     bad = [
         request(r, tools=[]),

@@ -123,6 +123,7 @@ class Config:
     env_work: Path  # outside the repository: `assert_isolated` demands it
     env: dict[str, str]
     base: Path = replay.BASE
+    projects: Path = replay.PROJECTS  # the self-check passes a temp folder
     model: str = "sonnet"
     judge_model: str = "haiku"
     runs: int = 5
@@ -482,6 +483,8 @@ def reserve(cfg: Config, state: State, cap: float) -> None:
 
 
 def run_cap(copy: Copy) -> float:
+    if copy.context_tokens is None:  # `skip_reason` skips such a point before any run
+        raise ValueError("context size unknown: no cap can be set")
     return copy.context_tokens * WRITE_USD_PER_TOKEN * 2 + CAP_FLOOR_USD
 
 
@@ -491,7 +494,7 @@ def run_cap(copy: Copy) -> float:
 @contextlib.contextmanager
 def prepared(cfg: Config, point: Point) -> Generator[Prepared]:
     """The copy, the worktree and the arm files of a point; all removed on exit."""
-    copy = replay.make_copy(point, cfg.base / point.name)
+    copy = replay.make_copy(point, cfg.base / point.name, cfg.projects)
     tree: Path | None = None
     try:
         tree = cfg.make_tree(point, copy, cfg.base)
@@ -503,9 +506,8 @@ def prepared(cfg: Config, point: Point) -> Generator[Prepared]:
         yield Prepared(point, copy, tree, settings, replay.read_entries(point.transcript))
     finally:
         replay.cleanup(copy)
-        if tree is not None:
-            replay.remove_worktree(tree)
-            shutil.rmtree(tree, ignore_errors=True)
+        if tree is not None and (failed := replay.remove_worktree(tree, cfg.base)):
+            print(failed, file=sys.stderr)
 
 
 def launch_for(ctx: Context, arm: str, trace: Path) -> Launch:
@@ -610,7 +612,7 @@ def _kill_rule(state: State, gated: bool) -> None:
 
 def skip_reason(cfg: Config, point: Point) -> str | None:
     try:
-        problems = replay.check_point(point, cfg.base / point.name, cfg.max_context)
+        problems = replay.check_point(point, cfg.base / point.name, cfg.max_context, cfg.projects)
     except (OSError, ValueError, subprocess.CalledProcessError) as err:
         problems = [f"{type(err).__name__}: {err}"]
     if problems:
@@ -622,7 +624,7 @@ def skip_reason(cfg: Config, point: Point) -> str | None:
 
 def play(ctx: Context, result: PointResult, gate_only: bool) -> None:
     point = ctx.prep.point
-    result.context = ctx.prep.copy.context_tokens
+    result.context = ctx.prep.copy.context_tokens or 0
     if point.rule["kind"] == "judge" and not controls_pass(ctx):
         result.status = "dropped: scorer control failed"
         return

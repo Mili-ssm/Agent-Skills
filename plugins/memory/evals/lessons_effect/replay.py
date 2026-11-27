@@ -11,7 +11,9 @@ Usage: replay.py check POINTS_FILE [--max-context N] | replay.py --self-check
 from __future__ import annotations
 
 import argparse
+import contextlib
 import difflib
+import io
 import json
 import re
 import shutil
@@ -21,11 +23,14 @@ import tempfile
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import trial_env
 from rules_layout.run_trial import write_settings
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 REPO = trial_env.REPO
 BASE = REPO / "target" / "lessons-replay"
@@ -43,6 +48,8 @@ DENY_OUTPUT = {
 }
 RULE_FIELDS = ("tool", "command", "text", "input")
 POINT_STRINGS = ("name", "transcript", "lesson_line", "question")
+NAME_RE = re.compile(r"[A-Za-z0-9._-]+")
+NAME_REFUSED = {".", ".."}
 USAGE_KEYS = ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
 
 
@@ -74,9 +81,13 @@ class Copy:
     path: Path
     work: Path
     prompt: str
-    context_tokens: int
+    context_tokens: int | None  # None: no assistant entry before the cut has usage
     cut_timestamp: str
     first: int  # index of the first entry of the failing message
+    projects: Path = PROJECTS
+    created: bool = (
+        False  # True only for a projects folder this run made: `cleanup` removes nothing else
+    )
 
 
 # --- points file ---------------------------------------------------------------------------------------------
@@ -130,14 +141,16 @@ def _field_problem(raw: dict[str, Any]) -> str | None:
     for key in POINT_STRINGS:
         if not (isinstance(raw.get(key), str) and raw[key].strip()):
             return f"{key}: must be a non-empty string"
+    if not NAME_RE.fullmatch(raw["name"]) or raw["name"] in NAME_REFUSED:
+        return "name: must match [A-Za-z0-9._-]+ and not be '.' or '..'"
     return (
-        _other_problem(raw)
+        _shape_problem(raw)
         or _check_rule(raw.get("rule"))
         or _check_compliant(raw.get("compliant"))
     )
 
 
-def _other_problem(raw: dict[str, Any]) -> str | None:
+def _shape_problem(raw: dict[str, Any]) -> str | None:
     cut = raw.get("cut_line")
     if isinstance(cut, bool) or not isinstance(cut, int) or cut < 0:
         return "cut_line: must be a non-negative integer"
@@ -220,11 +233,16 @@ def read_entries(path: Path) -> list[dict[str, Any]]:
     ]
 
 
-def original_message(entries: list[dict[str, Any]], cut_line: int) -> Message:
-    """The failing assistant message: every main-chain assistant entry sharing the `message.id` at `cut_line`."""
+def _target_id(entries: list[dict[str, Any]], cut_line: int) -> str:
     target = _message_id(entries[cut_line]) if _is_main_assistant(entries[cut_line]) else None
     if target is None:
         raise ValueError(f"cut_line {cut_line}: not a main-chain assistant entry with a message id")
+    return target
+
+
+def original_message(entries: list[dict[str, Any]], cut_line: int) -> Message:
+    """The failing assistant message: every main-chain assistant entry sharing the `message.id` at `cut_line`."""
+    target = _target_id(entries, cut_line)
     message = Message()
     for entry in entries:
         if _is_main_assistant(entry) and _message_id(entry) == target:
@@ -271,24 +289,24 @@ def slug(work: Path) -> str:
 
 
 def first_of_message(entries: list[dict[str, Any]], cut_line: int) -> int:
-    """Index of the first entry of the assistant message that holds `cut_line`."""
-    target = _message_id(entries[cut_line])
-    first = cut_line
-    while (
-        first > 0
-        and _is_main_assistant(entries[first - 1])
-        and _message_id(entries[first - 1]) == target
-    ):
-        first -= 1
-    return first
+    """Index of the first entry of the assistant message that holds `cut_line`.
+
+    Attachment or sidechain entries can lie between the message's entries, so this is the earliest main-chain
+    assistant entry with the same id, not the end of a run of adjacent ones."""
+    target = _target_id(entries, cut_line)
+    return next(
+        i
+        for i, entry in enumerate(entries[: cut_line + 1])
+        if _is_main_assistant(entry) and _message_id(entry) == target
+    )
 
 
-def _context_tokens(entries: list[dict[str, Any]]) -> int:
+def _context_tokens(entries: list[dict[str, Any]]) -> int | None:
     for entry in reversed(entries):
         usage = (entry.get("message") or {}).get("usage") if _is_main_assistant(entry) else None
         if isinstance(usage, dict):
             return sum(int(usage.get(key) or 0) for key in USAGE_KEYS)
-    return 0
+    return None
 
 
 def _distinct(entries: list[dict[str, Any]], key: str) -> list[str]:
@@ -297,14 +315,57 @@ def _distinct(entries: list[dict[str, Any]], key: str) -> list[str]:
     )
 
 
-def _rename(line: str, renames: list[tuple[str, str]]) -> str:
-    for old, new in renames:
-        line = line.replace(old, new)
-    return line
+def _json_forms(text: str) -> dict[str, str]:
+    """The text as it can sit inside a JSON string: with unicode escapes (the default) and as raw UTF-8."""
+    return {json.dumps(text, ensure_ascii=a)[1:-1]: text for a in (True, False)}
 
 
-def make_copy(point: Point, work: Path) -> Copy:
-    """Write lines `[0, first)` of the transcript, rewritten for a new session id and working folder `work`."""
+def _renamer(
+    old_ids: list[str], old_cwds: list[str], session_id: str, work: Path
+) -> Callable[[str], str]:
+    """A one-pass rewrite of a transcript line: old working folders (at a path boundary) to `work`, old ids to the new one.
+
+    A folder that is a prefix of a longer name (`/a/proj` in `/a/proj-2`) or the tail of another path is left alone."""
+    escaped = json.dumps(str(work))[
+        1:-1
+    ]  # always valid JSON; a raw-UTF-8 old folder gets the raw form
+    raw_new = json.dumps(str(work), ensure_ascii=False)[1:-1]
+    paths = {
+        raw: (escaped if raw.isascii() else raw_new) for cwd in old_cwds for raw in _json_forms(cwd)
+    }
+    path_re = re.compile(
+        rf"(?<![\w.\-])(?:{'|'.join(map(re.escape, sorted(paths, key=len, reverse=True)))})(?![\w.\-]|\\u)"
+        if paths
+        else r"(?!)"
+    )
+    id_re = re.compile(
+        rf"(?<![\w\-])(?:{'|'.join(map(re.escape, old_ids))})(?![\w\-])" if old_ids else r"(?!)"
+    )
+
+    def rename(line: str) -> str:
+        line = path_re.sub(lambda m: paths[m.group(0)], line)
+        return id_re.sub(lambda _m: session_id, line)
+
+    return rename
+
+
+def _make_folder(projects: Path, work: Path) -> Path:
+    """Create `<projects>/<slug>`; an existing one is somebody's, so it is refused and left alone."""
+    projects.mkdir(parents=True, exist_ok=True)
+    folder = projects / slug(work)
+    try:
+        folder.mkdir()
+    except FileExistsError:
+        raise FileExistsError(
+            f"projects folder {folder.name!r} already exists: not touched; remove it yourself or use another working folder"
+        ) from None
+    return folder
+
+
+def make_copy(point: Point, work: Path, projects: Path = PROJECTS) -> Copy:
+    """Write lines `[0, first)` of the transcript, rewritten for a new session id and working folder `work`.
+
+    The copy lives in a new `<projects>/<slug>` folder; when that folder exists the call raises and deletes nothing."""
     lines = point.transcript.read_text(encoding="utf-8").split("\n")
     entries = read_entries(point.transcript)
     if point.cut_line >= len(entries):
@@ -315,17 +376,22 @@ def make_copy(point: Point, work: Path) -> Copy:
         for line, e in zip(lines[:first], entries[:first], strict=True)
         if e.get("type") != "cost-state"
     ]
-    old_ids = set(_distinct([e for _, e in kept], "sessionId"))
-    old_cwds = _distinct([e for _, e in kept], "cwd")
     session_id = str(uuid.uuid4())
-    renames = [(old, session_id) for old in old_ids] + [
-        (json.dumps(cwd)[1:-1], json.dumps(str(work))[1:-1]) for cwd in old_cwds
-    ]
-    out = [_rename(line, renames) for line, _ in kept]
-    folder = PROJECTS / slug(work)
-    folder.mkdir(parents=True, exist_ok=True)
+    rename = _renamer(
+        _distinct([e for _, e in kept], "sessionId"),
+        _distinct([e for _, e in kept], "cwd"),
+        session_id,
+        work,
+    )
+    folder = _make_folder(projects, work)
     path = folder / f"{session_id}.jsonl"
-    path.write_text("\n".join(out) + "\n", encoding="utf-8")
+    try:
+        path.write_text("\n".join(rename(line) for line, _ in kept) + "\n", encoding="utf-8")
+    except BaseException:
+        shutil.rmtree(
+            folder, ignore_errors=True
+        )  # the folder is ours: it did not exist a moment ago
+        raise
     return Copy(
         session_id,
         path,
@@ -334,13 +400,16 @@ def make_copy(point: Point, work: Path) -> Copy:
         _context_tokens([e for _, e in kept]),
         str(entries[first].get("timestamp", "")),
         first,
+        projects,
+        created=True,
     )
 
 
 def cleanup(copy: Copy) -> None:
-    """Remove the `~/.claude/projects/<slug>` folder the copy was written to."""
+    """Remove the projects folder `make_copy` created for this copy; refuse any other folder."""
     folder = copy.path.parent
-    assert folder.parent == PROJECTS, f"not a projects folder: {folder}"
+    if not (copy.created and folder.parent == copy.projects and folder.name == slug(copy.work)):
+        raise ValueError(f"refusing to remove {folder.name!r}: this run did not create it")
     shutil.rmtree(folder, ignore_errors=True)
 
 
@@ -389,19 +458,30 @@ def block_r0(copy: Copy) -> str:
 
 
 def block_r(block: str, lesson_line: str, topic: str | None) -> str:
-    """The block with `- <lesson_line>` after the last bullet under the `<topic>:` heading, else appended."""
+    """The block with `- <lesson_line>` added as one line: after the last bullet under the `<topic>:` heading,
+    else (no topic, or no such heading) after the last bullet of the block. No heading is ever added."""
     lines = block.split("\n")
     new = f"- {lesson_line}"
     heading = next(
         (i for i, line in enumerate(lines) if topic and line.startswith(f"{topic}:")), None
     )
-    if heading is None:
-        trailing = "\n" if block.endswith("\n") else ""
-        return f"{block.rstrip(chr(10))}\n{topic or 'other'}:\n{new}{trailing}"
-    last = heading
-    while last + 1 < len(lines) and lines[last + 1].startswith("- "):
-        last += 1
+    if heading is not None:
+        last = heading
+        while last + 1 < len(lines) and lines[last + 1].startswith("- "):
+            last += 1
+    else:
+        bullets = [i for i, line in enumerate(lines) if line.startswith("- ")]
+        last = bullets[-1] if bullets else max(i for i, line in enumerate(lines) if line.strip())
     return "\n".join([*lines[: last + 1], new, *lines[last + 1 :]])
+
+
+def one_line_apart(r0: str, r: str, lesson_line: str) -> bool:
+    """True when R is R0 plus exactly the lesson's bullet: one line added, none removed."""
+    r0_lines, r_lines = r0.split("\n"), r.split("\n")
+    return any(
+        line == f"- {lesson_line}" and [*r_lines[:i], *r_lines[i + 1 :]] == r0_lines
+        for i, line in enumerate(r_lines)
+    )
 
 
 # --- per-point checks ----------------------------------------------------------------------------------------
@@ -411,14 +491,15 @@ def _marker_problems(point: Point, blocks: list[str]) -> list[str]:
     return [
         f"marker {word!r} occurs in a SessionStart block before the cut"
         for word in point.markers
-        if any(re.search(rf"\b{re.escape(word)}\b", text, re.IGNORECASE) for text in blocks)
+        if any(
+            re.search(rf"(?<!\w){re.escape(word)}(?!\w)", text, re.IGNORECASE) for text in blocks
+        )
     ]
 
 
 def _rule_problems(point: Point) -> list[str]:
     if point.rule["kind"] == "judge":
-        print(f"{point.name}: judge controls: pending part B")
-        return []
+        return []  # its controls need a model: `check_command` reports the point as pending
     original = original_message(read_entries(point.transcript), point.cut_line)
     problems = []
     if score_by_code(point.rule, original):
@@ -436,8 +517,8 @@ def _block_problems(point: Point, copy: Copy) -> list[str]:
     problems = []
     if point.lesson_line in r0:
         problems.append("the lesson line is already in the session's block")
-    if point.lesson_line not in block_r(r0, point.lesson_line, point.topic):
-        problems.append("block_r lacks the lesson line")
+    if not one_line_apart(r0, block_r(r0, point.lesson_line, point.topic), point.lesson_line):
+        problems.append("R does not differ from R0 by exactly the lesson line")
     return problems
 
 
@@ -447,14 +528,18 @@ def check_copy(point: Point, copy: Copy, max_context: int = DEFAULT_MAX_CONTEXT)
     problems = _marker_problems(point, session_start_blocks(kept))
     if any(e.get("subtype") == "compact_boundary" for e in kept):
         problems.append("a compaction lies before the cut")
-    if copy.context_tokens > max_context:
+    if copy.context_tokens is None:
+        problems.append("context size unknown")
+    elif copy.context_tokens > max_context:
         problems.append(f"context {copy.context_tokens} tokens is over {max_context}")
     return [*problems, *_rule_problems(point), *_block_problems(point, copy)]
 
 
-def check_point(point: Point, work: Path, max_context: int = DEFAULT_MAX_CONTEXT) -> list[str]:
+def check_point(
+    point: Point, work: Path, max_context: int = DEFAULT_MAX_CONTEXT, projects: Path = PROJECTS
+) -> list[str]:
     """Build the copy for working folder `work`, check the point, and remove the copy."""
-    copy = make_copy(point, work)
+    copy = make_copy(point, work, projects)
     try:
         return check_copy(point, copy, max_context)
     finally:
@@ -495,6 +580,10 @@ def make_worktree(point: Point, copy: Copy, base: Path) -> Path:
         raise ValueError(f"no commit of origin/dev before {copy.cut_timestamp}")
     path = base / point.name
     base.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        raise FileExistsError(
+            f"worktree folder {point.name!r} already exists under {base.name}: not touched"
+        )
     subprocess.run(
         ["git", "worktree", "add", "--detach", str(path), commit],
         cwd=REPO,
@@ -505,13 +594,18 @@ def make_worktree(point: Point, copy: Copy, base: Path) -> Path:
     return path
 
 
-def remove_worktree(path: Path) -> None:
+def remove_worktree(path: Path, base: Path = BASE) -> str | None:
+    """Remove a worktree this run made at `<base>/<name>`; refuse any other path. The problem as text, or None."""
+    if path.resolve().parent != base.resolve() or not NAME_RE.fullmatch(path.name):
+        return f"refused to remove a worktree outside {base.name}"
     subprocess.run(
         ["git", "worktree", "remove", "--force", str(path)],
         cwd=REPO,
         check=False,
         capture_output=True,
     )
+    shutil.rmtree(path, ignore_errors=True)
+    return f"worktree {path.name!r} could not be removed" if path.exists() else None
 
 
 # --- self-check ----------------------------------------------------------------------------------------------
@@ -538,7 +632,9 @@ def _assistant(message_id: str, block: dict[str, Any]) -> dict[str, Any]:
     return _entry("assistant", message={"id": message_id, "content": [block], "usage": USAGE})
 
 
-def synthetic_entries(*, compaction: bool = False) -> list[dict[str, Any]]:
+def synthetic_entries(
+    *, compaction: bool = False, interleave: bool = False
+) -> list[dict[str, Any]]:
     start = _entry(
         "attachment",
         attachment={
@@ -560,9 +656,18 @@ def synthetic_entries(*, compaction: bool = False) -> list[dict[str, Any]]:
     ]
     if compaction:
         entries.insert(4, _entry("system", subtype="compact_boundary"))
+    between = (
+        [
+            _entry("attachment", attachment={"type": "other"}),
+            {**_assistant("s1", {"type": "text", "text": "side"}), "isSidechain": True},
+        ]
+        if interleave
+        else []
+    )
     return [
         *entries,
         _assistant("m2", {"type": "text", "text": "I will clean up."}),
+        *between,
         _assistant(
             "m2", {"type": "tool_use", "name": "Bash", "input": {"command": "rm -rf build"}}
         ),
@@ -593,10 +698,10 @@ def synthetic_point(base: Path, entries: list[dict[str, Any]], **over: Any) -> P
     return point
 
 
-def check_copy_shape(base: Path) -> None:
+def check_copy_shape(base: Path, projects: Path) -> None:
     point = synthetic_point(base, synthetic_entries())
     work = base / "new work"
-    copy = make_copy(point, work)
+    copy = make_copy(point, work, projects)
     try:
         assert copy.first == len(synthetic_entries()) - 2, (
             copy.first
@@ -610,7 +715,7 @@ def check_copy_shape(base: Path) -> None:
         assert {e["sessionId"] for e in kept} == {copy.session_id} and {e["cwd"] for e in kept} == {
             str(work)
         }
-        assert copy.path.parent == PROJECTS / slug(work) and copy.path.stem == copy.session_id
+        assert copy.path.parent == projects / slug(work) and copy.path.stem == copy.session_id
         assert copy.prompt == PROMPT and copy.context_tokens == sum(USAGE.values()), (
             copy.context_tokens
         )
@@ -623,13 +728,77 @@ def check_copy_shape(base: Path) -> None:
             if d[0] in "+-"
         ]
         assert gained == [f"+ - {LESSON}"], gained
+        assert one_line_apart(r0, block_r(r0, LESSON, "beta"), LESSON)
         under = block_r(r0, LESSON, "alpha").splitlines()
         assert under.index(f"- {LESSON}") == under.index("- two") + 1, under
-        appended = block_r(r0, LESSON, None).splitlines()
-        assert appended[-2:] == ["other:", f"- {LESSON}"] and appended[:-2] == r0.splitlines()
+        for topic in (None, "gamma"):  # no heading is added: after the last bullet of the block
+            fallback = block_r(r0, LESSON, topic)
+            assert one_line_apart(r0, fallback, LESSON), fallback
+            assert (
+                fallback.splitlines().index(f"- {LESSON}") == r0.splitlines().index("- three") + 1
+            )
+        assert not one_line_apart(r0, r0 + "other:\n", LESSON)
+        assert not one_line_apart(r0, block_r(r0, LESSON, "beta").replace("- one\n", ""), LESSON)
     finally:
         cleanup(copy)
     assert not copy.path.parent.exists(), "cleanup left the folder"
+    assert not (PROJECTS / slug(work)).exists(), "the real projects folder was used"
+
+
+def check_existing_folder(base: Path, projects: Path) -> None:
+    """R1: a projects folder that already exists is the owner's; nothing is created in it or deleted from it."""
+    point = synthetic_point(base, synthetic_entries())
+    work = base / "taken work"
+    owned = projects / slug(work)
+    owned.mkdir(parents=True)
+    (owned / "keep.jsonl").write_text("mine\n", encoding="utf-8")
+    try:
+        make_copy(point, work, projects)
+    except FileExistsError as err:
+        assert str(base) not in str(err), err  # the slug only, no path
+    else:
+        raise AssertionError("make_copy used an existing projects folder")
+    assert [p.name for p in owned.iterdir()] == ["keep.jsonl"], "make_copy touched the folder"
+    mine = make_copy(point, base / "free work", projects)
+    forged = Copy(mine.session_id, owned / "x.jsonl", work, PROMPT, 0, "", 0, projects)
+    for bad in (forged, Copy(**{**mine.__dict__, "created": False})):
+        try:
+            cleanup(bad)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("cleanup removed a folder this run did not create")
+    assert (owned / "keep.jsonl").exists() and mine.path.exists()
+    cleanup(mine)
+    assert not mine.path.parent.exists() and (owned / "keep.jsonl").exists()
+    shutil.rmtree(owned)
+
+
+def check_rewrite(base: Path, projects: Path) -> None:
+    """R3: only whole path names change (raw or unicode-escaped); only the exact session id changes."""
+    old, uni = "/syn/proj", "/syn/caf\u00e9"
+    sid = "00000000-0000-4000-8000-0000000000aa"
+    notes = {
+        old: f"{old}-2/src {old}/src {old}. /other{old} {old}",
+        uni: f"{uni}/a {uni}s {sid} {sid}0",
+    }
+    entries = [
+        {**_entry("user", message={}), "cwd": cwd, "sessionId": sid, "note": note}
+        for cwd, note in notes.items()
+    ]
+    point = synthetic_point(base, [*entries, _assistant("m3", {"type": "text", "text": "t"})])
+    work = base / "rw work"
+    for ascii_json in (False, True):  # the folder as raw UTF-8, then as a \u escape
+        lines = [json.dumps(e, ensure_ascii=ascii_json) for e in [*entries, _assistant("m3", {})]]
+        point.transcript.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        copy = make_copy(point, work, projects)
+        try:
+            kept = [json.loads(line) for line in copy.path.read_text(encoding="utf-8").splitlines()]
+        finally:
+            cleanup(copy)
+        assert [e["cwd"] for e in kept] == [str(work)] * 2, kept
+        assert kept[0]["note"] == f"{old}-2/src {work}/src {old}. /other{old} {work}", kept[0]
+        assert kept[1]["note"] == f"{work}/a {uni}s {copy.session_id} {sid}0", kept[1]
 
 
 def check_scoring() -> None:
@@ -668,28 +837,51 @@ def check_scoring() -> None:
     assert score_by_code(input_rule, message)
 
 
-def check_points(base: Path) -> None:
+def check_points(base: Path, projects: Path) -> None:
     work = base / "check work"
-    assert (
-        check_point(synthetic_point(base, synthetic_entries(), markers=["unrelated"]), work) == []
-    )
-    marked = check_point(synthetic_point(base, synthetic_entries()), work)
-    assert not marked, marked  # "forbidden" is not in the block
-    bad = check_point(synthetic_point(base, synthetic_entries(), markers=["TWO"]), work)
-    assert any("'TWO'" in p for p in bad), bad
-    compacted = check_point(synthetic_point(base, synthetic_entries(compaction=True)), work)
-    assert any("compaction" in p for p in compacted), compacted
-    assert any(
-        "context" in p for p in check_point(synthetic_point(base, synthetic_entries()), work, 5)
-    )
+
+    def problems(
+        entries: list[dict[str, Any]] | None = None, limit: int = DEFAULT_MAX_CONTEXT, **over: Any
+    ):
+        point = synthetic_point(base, entries or synthetic_entries(), **over)
+        return check_point(point, work, limit, projects)
+
+    assert problems(markers=["unrelated"]) == []
+    assert problems() == []  # "forbidden" is not in the block
+    assert any("'TWO'" in p for p in problems(markers=["TWO"]))
+    assert any("compaction" in p for p in problems(synthetic_entries(compaction=True)))
+    assert any("context" in p for p in problems(limit=5))
     weak = {"kind": "code", "pass_when": "none", "patterns": [{"field": "command", "regex": "zzz"}]}
-    assert any(
-        "original" in p
-        for p in check_point(synthetic_point(base, synthetic_entries(), rule=weak), work)
-    )
-    dup = check_point(synthetic_point(base, synthetic_entries(), lesson_line="one"), work)
-    assert any("already" in p for p in dup), dup
-    assert not list(PROJECTS.glob(f"{slug(work)}*")), "check_point left a copy"
+    assert any("original" in p for p in problems(rule=weak))
+    assert any("already" in p for p in problems(lesson_line="one"))
+    for marker in (".env", "C++", "--force"):  # punctuation at an edge: `\\b` would never match
+        block = BLOCK.replace("three", f"use {marker} here")
+        entries = synthetic_entries()
+        entries[0]["attachment"]["content"] = entries[0]["attachment"]["stdout"] = block
+        assert any(marker in p for p in problems(entries, markers=[marker])), marker
+    assert not any("TW" in p for p in problems(markers=["TW"])), "a marker inside a word matched"
+    no_usage = synthetic_entries()
+    for entry in no_usage:
+        entry.get("message", {}).pop("usage", None)
+    assert "context size unknown" in problems(no_usage)
+    assert not list(projects.glob(f"{slug(work)}*")), "check_point left a copy"
+
+
+def check_interleaved(base: Path, projects: Path) -> None:
+    """R10: entries between the failing message's own entries do not stop the walk back."""
+    entries = synthetic_entries(interleave=True)
+    point = synthetic_point(base, entries)
+    copy = make_copy(point, base / "gap work", projects)
+    try:
+        assert copy.first == len(entries) - 4, copy.first
+        kept = copy.path.read_text(encoding="utf-8")
+        assert "I will clean up." not in kept and "side" not in kept, (
+            "the message's first blocks stayed"
+        )
+    finally:
+        cleanup(copy)
+    message = original_message(entries, point.cut_line)
+    assert message.text == "I will clean up." and [t["name"] for t in message.tools] == ["Bash"]
 
 
 def check_files(base: Path) -> None:
@@ -750,12 +942,13 @@ def check_loading(base: Path) -> None:
             "regex",
         ),
     ]
+    broken += [({**good, "name": bad}, "name") for bad in ("../x", "a/b", "..", ".", "a b")]
     for point, name in broken:
         path.write_text(json.dumps([point]), encoding="utf-8")
         try:
             load_points(path)
         except ValueError as err:
-            assert "point p" in str(err) and name in str(err), err
+            assert f"point {point['name']}" in str(err) and name in str(err), err
         else:
             raise AssertionError(f"accepted a bad {name}")
 
@@ -763,12 +956,17 @@ def check_loading(base: Path) -> None:
 def self_check() -> int:
     base = Path(tempfile.mkdtemp(prefix="lessons-replay-check-")).resolve()
     assert not base.is_relative_to(REPO)
+    projects = base / "projects"  # never the real ~/.claude/projects
     try:
-        check_copy_shape(base)
+        check_copy_shape(base, projects)
+        check_existing_folder(base, projects)
+        check_rewrite(base, projects)
+        check_interleaved(base, projects)
         check_scoring()
-        check_points(base)
+        check_points(base, projects)
         check_files(base)
         check_loading(base)
+        check_command_lines(base, projects)
     finally:
         shutil.rmtree(base, ignore_errors=True)
     print("self-check passed")
@@ -778,27 +976,78 @@ def self_check() -> int:
 # --- command line --------------------------------------------------------------------------------------------
 
 
-def check_command(points_file: Path, max_context: int) -> int:
-    points = load_points(points_file)
-    bad = 0
-    for point in points:
-        work = BASE / point.name
-        copy = make_copy(point, work)
-        tree: Path | None = None
-        try:
-            tree = make_worktree(point, copy, BASE)
-            problems = check_copy(point, copy, max_context)
-        except (OSError, ValueError, subprocess.CalledProcessError) as err:
-            problems = [f"{type(err).__name__}: {err}"]
-        finally:
+def check_one(
+    point: Point, max_context: int, projects: Path = PROJECTS, base: Path = BASE
+) -> tuple[int | None, list[str]]:
+    """Context tokens and problems of one point; a failure of this point is a problem line, never a traceback."""
+    copy: Copy | None = None
+    tree: Path | None = None
+    problems: list[str] = []
+    try:
+        copy = make_copy(point, base / point.name, projects)
+        tree = make_worktree(point, copy, base)
+        problems = check_copy(point, copy, max_context)
+    except (OSError, ValueError, subprocess.CalledProcessError) as err:
+        problems = [f"{type(err).__name__}: {err}"]
+    finally:
+        if copy is not None:
             cleanup(copy)
-            if tree is not None:
-                remove_worktree(tree)
+        if tree is not None and (failed := remove_worktree(tree, base)):
+            problems.append(failed)
+    return (copy.context_tokens if copy else None), problems
+
+
+def check_command(
+    points_file: Path, max_context: int, projects: Path = PROJECTS, base: Path = BASE
+) -> int:
+    bad = 0
+    for point in load_points(points_file):
+        tokens, problems = check_one(point, max_context, projects, base)
+        status = "ok" if point.rule["kind"] != "judge" else "pending judge controls"
         bad += bool(problems)
         print(
-            f"{point.name}\t{copy.context_tokens}\t{'ok' if not problems else '; '.join(problems)}"
+            f"{point.name}\t{tokens if tokens is not None else '?'}\t{'; '.join(problems) or status}"
         )
     return EXIT_PROBLEMS if bad else 0
+
+
+def _raw_point(point: Point) -> dict[str, Any]:
+    return {
+        "name": point.name,
+        "transcript": str(point.transcript),
+        "cut_line": point.cut_line,
+        "markers": point.markers,
+        "lesson_line": point.lesson_line,
+        "topic": point.topic,
+        "question": point.question,
+        "rule": point.rule,
+        "compliant": {"text": point.compliant.text, "tools": point.compliant.tools},
+        "commit": "HEAD",
+    }
+
+
+def check_command_lines(base: Path, projects: Path) -> None:
+    """R5, R7: one line per point; a bad point does not stop the loop; a judge point is not `ok`."""
+    entries = synthetic_entries()
+    cases = [
+        ("cutbad", {"cut_line": len(entries) + 5}),
+        ("missing", {"transcript": base / "absent.jsonl"}),
+        ("judged", {"rule": {"kind": "judge"}}),
+        ("fine", {}),
+    ]
+    raw = [_raw_point(synthetic_point(base, entries, name=n, **over)) for n, over in cases]
+    points_file = base / "command-points.json"
+    points_file.write_text(json.dumps(raw), encoding="utf-8")
+    trees = base / "trees"
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        code = check_command(points_file, DEFAULT_MAX_CONTEXT, projects, trees)
+    rows = [line.split("\t") for line in out.getvalue().splitlines()]
+    assert code == EXIT_PROBLEMS and [r[0] for r in rows] == [c[0] for c in cases], out.getvalue()
+    assert "cut_line" in rows[0][2] and "FileNotFoundError" in rows[1][2], rows
+    assert rows[2][2] == "pending judge controls" and rows[3][2] == "ok", rows
+    assert not list(trees.iterdir()) and not list(projects.iterdir()), "check left a copy"
+    assert remove_worktree(base / "elsewhere", trees) is not None  # outside the base: refused
 
 
 def main() -> int:
