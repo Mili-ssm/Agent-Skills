@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-Status: accepted by the owner 2026-11-27 (after a pre-mortem the same day); execution: subagent-driven · Decision: [ADR 0038](../../adr/0038-memory-codex-parity-capture-and-agents.md) 
+Status: accepted by the owner 2026-11-27 (after a pre-mortem the same day); execution: subagent-driven; tasks 1-7 done 2026-11-27, release 0.19.0 pending the owner · Decision: [ADR 0038](../../adr/0038-memory-codex-parity-capture-and-agents.md) 
 
 **Goal:** Codex sessions get what Claude sessions get from the memory plugin, except what Codex cannot carry: automatic capture and history commit, plugin options, and the memory agents.
 
@@ -144,7 +144,7 @@ Raw notes: session scratchpad `task6/RESULTS.md` (not kept). About 95k Codex tok
 
 Result (2026-11-27): addendum in `corroborate/run.py` `run_on`; a Codex session with no output file fails. Live: run 1 (without a final-message request) wrote `groups.json` but ended silent, so `failed`, 46k tokens; run 2 (addendum asks for a final `done`): `ok`, 92k tokens, the 2 paraphrases grouped by the proposer, the verifier refused the group as not faithful (model variance).
 
-### Task 7: Docs and release prep
+### Task 7: Docs and release prep (docs done 2026-11-27)
 
 **Files:** `plugins/memory/README.md` (§ Codex: options files, capture, agents, re-trust), `plugins/memory/CHANGELOG.md` `[Unreleased]`, `docs/platform-parity.md` (memory rows), `docs/backlog.md`, ADR 0038 accepted with a `## Review`, the Codex port plan's "outside the core" list.
 

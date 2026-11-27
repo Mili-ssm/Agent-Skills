@@ -9,12 +9,22 @@ ADR 0023; see the [stage plan](../../docs/superpowers/plans/2026-11-17-memory-pl
 
 Optional, once per machine: `mem install-command` writes launchers for `mem`, `mem-research` and `mem-synthesize` to `~/.local/bin` (`--bin-dir` to choose, `--remove` to undo), so those commands work in every tool and in a terminal without the plugin's `PATH`. The launcher runs the plugin copy the last session started from (each session start records it), so updates need no reinstall (ADR 0036).
 
-## Codex (core only; ADR 0036)
+## Codex (ADR 0036, 0038)
 
-Codex loads this same folder through `.codex-plugin/plugin.json`: the session index and the subagent line, with no Claude-only names. Not in the plugin on Codex: the `memory-*` subagents (step 5 installs them as roles), background passes, compaction and session-end hooks, plugin options (the store comes from `~/.config/agent-memory/store` or the default store, shared with Claude Code on the same machine).
+Codex loads this same folder through `.codex-plugin/plugin.json`, with one store shared with Claude Code on the same machine. What runs on Codex:
+
+| Feature | On Codex |
+|---|---|
+| Session index, subagent line | `SessionStart`, `SubagentStart` hooks |
+| Capture at session end and before compaction, store history commit | `SessionEnd` and `PreCompact` hooks; capture reads Codex session files and runs its model pass on Claude (needs `claude` installed); the session start sweep also captures sessions Codex closed without `SessionEnd` |
+| Plugin options | one file per option under `~/.config/agent-memory/`, named as the option, holding its value on the first line (e.g. `echo true > ~/.config/agent-memory/auto_capture`); the store and runner files as before |
+| `memory-*` subagents | roles in `~/.codex/agents/` (step 5) |
+| Background passes on Codex models | settle and corroborate, experimental (below) |
+
+Not on Codex: the compaction handoff (Codex shows nothing a compaction hook prints to the model); the settle trigger after a store write in a shell command (Codex passes no hook variables to commands); a pass started from inside a Codex session with `--runner codex` (the sandbox has no network: it fails and records why).
 
 1. `codex plugin marketplace add Mili-ssm/Agent-Skills`, then `codex plugin add memory@mili-ssm`.
-2. Trust the plugin's two hooks once per version that changes them: the VS Code extension never asks and skips untrusted hooks without a warning, so run the CLI in a terminal (`codex`, or without a standalone install the extension's binary: `~/.vscode/extensions/openai.chatgpt-<version>-linux-x64/bin/linux-x86_64/codex --no-daemon`), type `/hooks`, open `SessionStart` and `SubagentStart` from `memory@mili-ssm`, press `t` on each; Codex records `trusted_hash` under `[hooks.state]` in `~/.codex/config.toml`, the config file the extension also reads. Check: the hook log (`~/.local/state/agent-memory/hooks/log.jsonl`) gains a `"host": "codex"` entry per session.
+2. Trust the plugin's hooks after every install or update that changes `hooks/codex.json` (until then **none** of them runs, the session index included): the VS Code extension never asks and skips untrusted hooks without a warning, so run the CLI in a terminal (`codex`, or without a standalone install the extension's binary: `~/.vscode/extensions/openai.chatgpt-<version>-linux-x64/bin/linux-x86_64/codex --no-daemon`), type `/hooks`, open each `memory@mili-ssm` hook (`SessionStart`, `SubagentStart`, `SessionEnd`, `PreCompact`), press `t` on each; Codex records `trusted_hash` under `[hooks.state]` in `~/.codex/config.toml`, the config file the extension also reads. Check: the hook log (`~/.local/state/agent-memory/hooks/log.jsonl`) gains a `"host": "codex"` entry per session.
 3. Codex's `workspace-write` sandbox blocks `mem` (`uv` cannot take its lock in `~/.cache/uv`) and writes to the global store. Add to `~/.codex/config.toml`, with absolute paths (plus your `store` folder if you set one):
 
    ```toml
@@ -31,7 +41,7 @@ The passes the engine starts run on Claude by default. Two may run on Codex mode
 
 How a Codex session runs: `codex exec` found at run time (`MEM_CODEX`, `PATH`, else the newest VS Code extension binary), with `HOME` and `XDG_*` in the run folder, a private `CODEX_HOME` holding only a link to your `auth.json` (a token Codex refreshes there is copied back; the folder is removed after the run), `--ignore-user-config` and hooks disabled, so your `AGENTS.md`, plugins and this plugin's hooks stay out. Budgets are tokens, not money: `MEM_CODEX_TOKENS` per run (default 500000; Codex's own prompt costs about 44k input tokens per call).
 
-Trial, 2026-11-27 (seeded store copy, `evals/settle/run_trial.py`): settle on Codex, with a Codex-only rule that a merge must lose nothing, gave 0 wrong actions of 40 in 3 runs (median 16 of 20 should-act pairs acted on; Claude 18 in its one run with the shared brief); without that rule it merged one pair wrongly in both runs without it (first trial and diagnosis). Corroborate was tested only against a simulated Codex. Numbers: [runner plan](../../docs/superpowers/plans/2026-11-27-memory-runner.md).
+Trial, 2026-11-27 (seeded store copy, `evals/settle/run_trial.py`): settle on Codex, with a Codex-only rule that a merge must lose nothing, gave 0 wrong actions of 40 in 3 runs (median 16 of 20 should-act pairs acted on; Claude 18 in its one run with the shared brief); without that rule it merged one pair wrongly in both runs without it (first trial and diagnosis). Corroborate on Codex, after a Codex-only brief fix (ADR 0038 Review): on a 4-lesson copy it grouped the 2 paraphrases and its verifier ran (~92k tokens); one live run, so treat it as unmeasured. Numbers: [runner plan](../../docs/superpowers/plans/2026-11-27-memory-runner.md).
 
 ## Requirements
 

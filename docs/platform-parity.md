@@ -123,13 +123,13 @@ Our plugins use the bold rows. "≈" marks a near match whose timing differs.
 |---|---|---|---|
 | Session index at start | `SessionStart` stdout | `sessionStart` `additionalContext` | `SessionStart` `injectSteps` |
 | Index for subagents | `SubagentStart` | `subagentStart`, except the general-purpose agent | none: put the three lines in plugin `rules/AGENTS.md` (whether subagents load it is not verified) |
-| Handoff before compaction | lost as built: `PreCompact` ignores plain stdout, and no context field for it is documented | lost: `preCompact` has no output | lost |
-| Compaction log | `PostCompact` | lost | lost |
-| Capture and history commit at end | `SessionEnd`, but 3 s at most: run the commit in a detached process | `sessionEnd` | no session-end event: a debounced `Stop` hook or the next `SessionStart` |
-| Agents (4) and skills (3) | as for `agent-skills`: roles outside the plugin, tool limits as rules | as for `agent-skills` | as for `agent-skills` |
-| Options (`store`, `auto_*`) | a config file read by `mem` | a config file | `variables` |
+| Handoff before compaction | not ported (ADR 0038): `PreCompact` ignores plain stdout and no JSON field reaches the model; capture still runs at `PreCompact` | lost: `preCompact` has no output | lost |
+| Compaction log | not ported: it checks the handoff, which Codex cannot carry | lost | lost |
+| Capture and history commit at end | `SessionEnd` (3 s cap) starts both detached (a `setsid` process survived exit in exec and TUI, 2026-11-27); capture reads Codex rollouts; the start sweep scans the last 7 day folders, owner threads of the project only (ADR 0038) | `sessionEnd` | no session-end event: a debounced `Stop` hook or the next `SessionStart` |
+| Agents (4) and skills (3) | 5 roles generated into the plugin (`codex-agents/`), copied to `~/.codex/agents/` (plugins cannot ship roles); tool limits as rules | as for `agent-skills` | as for `agent-skills` |
+| Options (`store`, `auto_*`) | one config file per option under `~/.config/agent-memory/`, exported by the hooks as the Claude variables (ADR 0038) | a config file | `variables` |
 | `mem` on PATH | not on PATH (probe 2026-11-27): hooks call it by `PLUGIN_ROOT`, the session text gives the absolute path ([ADR 0036](adr/0036-memory-codex-port-core.md)) | not documented how a hook finds the plugin folder; hooks run inside the session sandbox | relative to the plugin root (hooks run there) |
-| Background passes (`claude -p`) | `codex exec`: settle and corroborate only, experimental; corroborate untested on real Codex (ADR 0037 `## Review 2026-11-27`) | `copilot -p`, with the same Claude models | `agy -p` |
+| Background passes (`claude -p`) | `codex exec`: settle and corroborate only, experimental (ADR 0037; corroborate's Codex brief fixed, ADR 0038 Review); none from inside a Codex sandbox (no network) | `copilot -p`, with the same Claude models | `agy -p` |
 
 Codex, probed 2026-11-27 (`codex-cli 0.171.0-alpha.13.2`): trusted plugin hooks run in the CLI too, and a Codex manifest can select its own hooks file; the core port is built from the same folder (ADR 0036; setup in the plugin README § Codex); the observations and their method live in the [Codex port plan](superpowers/plans/2026-11-27-memory-codex-port.md#evidence-probes-of-2026-11-27).
 

@@ -46,3 +46,13 @@ Facts (Codex hooks docs, read 2026-11-27; a rollout file of `codex-cli` 0.171 re
 - Codex documents a context field for compaction hooks (port the handoff), or lets plugins ship agent roles.
 - The probe shows a detached process never survives `SessionEnd` and `SessionStart` lacks `transcript_path` (capture would have no path).
 - A Codex release changes the rollout format so the decoder skips most lines.
+
+## Review 2026-11-27
+
+Built the same day ([plan](../superpowers/plans/2026-11-27-memory-codex-parity.md) holds the probe and check tables). Changes from the Decision, each from a finding:
+
+- **Roles ship inside the plugin**, in `plugins/memory/codex-agents/` (generated), not in `ports/`: Codex's plugin cache holds only the plugin folder, so a user copies them from the installed plugin without a clone. `mem install-command` also installs `mem-research` and `mem-synthesize`, which the roles call.
+- **Sweep**: subagent rollouts are remembered as swept (they never become owner threads); another project's rollouts are not, because swept sizes are keyed by file in a store all projects share, so they are re-read (first line, ~29 KB) at each start; a rollout without `thread_source` counts as an owner thread.
+- **Owner text**: Codex wraps injected context whole in snake_case tags; a user part wrapped whole in one, or starting `# AGENTS.md instructions`, is not the owner's.
+- **Corroborate on Codex** did nothing in its first live run (its briefs end "use no other tool", read by Codex as "no tools") while reporting `ok`; it gets a Codex-only addendum like settle's, and a Codex session that writes no result fails the run. After the fix it grouped two paraphrases on a 4-lesson copy.
+- **Observed limits**: changing `hooks/codex.json` turns all the plugin's hooks off until re-trusted; a Codex pass started from inside a Codex session fails (no network in the sandbox); `SessionEnd` in the VS Code extension is not yet observed (the sweep covers it).
