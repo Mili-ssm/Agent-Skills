@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 from core import config, headless
 
 if TYPE_CHECKING:
+    import argparse
     from collections.abc import Mapping
 
 RUNNERS = ("claude", "codex")
@@ -60,6 +61,22 @@ def resolve_runner(flag: str | None, env: Mapping[str, str] | None = None) -> st
         if value.strip():
             return _choice(value.strip(), source)
     return "claude"
+
+
+def add_flag(parser: argparse.ArgumentParser) -> None:
+    """`--runner` for a pass command; `pin_flag(args.runner)` applies it."""
+    parser.add_argument(
+        "--runner",
+        choices=RUNNERS,
+        help="claude or codex; outranks MEM_RUNNER, the runner config file and the plugin option (default claude)",
+    )
+
+
+def pin_flag(flag: str | None) -> None:
+    """Make `--runner` outrank every other source for the rest of the process: `resolve_runner` reads `MEM_RUNNER`
+    right after the flag, so setting it once at the entry reaches every call site."""
+    if flag:
+        os.environ["MEM_RUNNER"] = flag
 
 
 def _extension_version(binary: Path) -> tuple[int, ...]:

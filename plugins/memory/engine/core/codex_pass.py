@@ -50,12 +50,14 @@ def refusal(pass_name: str) -> str:
 
 def refuse_codex(pass_name: str, explicit: str | None = None) -> int | None:
     """For a pass that stays on Claude. An `explicit` request for `codex` (the pass's own `--runner`) prints
-    `refusal` to stderr and returns the exit code to end with. A `codex` that only comes from a default
+    `refusal` to stderr and returns the exit code to end with; an explicit `claude` ends the question. A `codex` that only comes from a default
     (`MEM_RUNNER`, the config file, `MEM_RUNNER_OPTION`) never disables the pass: one line on stderr says the
     default is ignored, the pass runs on Claude, and None is returned. A malformed setting is ignored silently."""
     if explicit == "codex":
         print(refusal(pass_name), file=sys.stderr)
         return REFUSED_EXIT
+    if explicit == "claude":
+        return None
     try:
         chosen = runner.resolve_runner(None)
     except ValueError:

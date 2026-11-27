@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any, Required, TypedDict, Unpack
 
 from core import codex_pass, config, headless, jobs
+from core import runner as runners
 from memories.records import tokenize
 from notes.note import FrontmatterError, split_frontmatter
 from synthesize import pipeline as sp
@@ -916,6 +917,7 @@ def main(argv: list[str] | None = None) -> int:
         metavar="HOST",
         help="a host fetched although it resolves to a non-public address (a local test page)",
     )
+    runners.add_flag(parser)
     parser.add_argument(
         "--dry-run", action="store_true", help="say what would run; start and change nothing"
     )
@@ -927,7 +929,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.self_check:
         return self_check()
-    if (refused := codex_pass.refuse_codex("mem-research")) is not None:
+    if (refused := codex_pass.refuse_codex("mem-research", args.runner)) is not None:
         return refused
     _need_question(parser, args.question)
     store = _requested_store(args.store)

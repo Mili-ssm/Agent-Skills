@@ -84,10 +84,32 @@ def test_an_explicit_codex_is_refused_with_the_message(monkeypatch, capsys):
 def test_an_explicit_claude_is_not_refused(monkeypatch, capsys):
     monkeypatch.setenv("MEM_RUNNER", "codex")
     assert codex_pass.refuse_codex("mem-x", "claude") is None
-    assert capsys.readouterr().err.strip() == "mem-x" + IGNORED
+    assert not capsys.readouterr().err  # asked for claude: nothing to say about the default
 
 
 def test_refuse_codex_is_none_for_claude(monkeypatch, capsys):
     monkeypatch.setenv("MEM_RUNNER", "claude")
     assert codex_pass.refuse_codex("x") is None
     assert not capsys.readouterr().err
+
+
+@pytest.mark.parametrize(("name", "main", "argv"), PASSES)
+def test_an_explicit_runner_codex_refuses_with_exit_2(name, main, argv, monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", [*argv, "--runner", "codex"])
+    monkeypatch.setenv("MEM_RUNNER", "claude")
+    with contextlib.suppress(SystemExit):
+        assert main() == REFUSED
+    assert capsys.readouterr().err.count(name + MESSAGE) == 1
+
+
+@pytest.mark.usefixtures("no_store")
+@pytest.mark.parametrize(("name", "main", "argv"), PASSES)
+def test_an_explicit_runner_claude_beats_a_codex_default_silently(
+    name, main, argv, monkeypatch, capsys
+):
+    monkeypatch.setenv("MEM_RUNNER", "codex")
+    monkeypatch.setattr(sys, "argv", [*argv, "--runner", "claude"])
+    with contextlib.suppress(SystemExit):
+        main()
+    err = capsys.readouterr().err
+    assert MESSAGE not in err and IGNORED not in err

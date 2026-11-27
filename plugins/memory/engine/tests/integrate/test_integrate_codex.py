@@ -63,3 +63,20 @@ def test_a_malformed_runner_setting_is_a_usage_error(world, monkeypatch):
     monkeypatch.setenv("MEM_RUNNER", "gemini")
     done = world._main("run")
     assert done.rc == USAGE_ERROR and "runner 'gemini'" in done.err
+
+
+def test_the_flag_beats_mem_runner(world, codex, monkeypatch):
+    monkeypatch.setenv("MEM_RUNNER", "claude")
+    row = world.row("n-new")
+    codex.plan({"answer": row}, {"answer": row})
+    code, _ = world.run("--runner", "codex")
+    assert code == 0 and world.record().runner == "codex"
+
+
+def test_the_plugin_option_alone_picks_codex(world, codex, monkeypatch):
+    monkeypatch.delenv("MEM_RUNNER")
+    monkeypatch.setenv("MEM_RUNNER_OPTION", "codex")
+    row = world.row("n-new")
+    codex.plan({"answer": row}, {"answer": row})
+    code, _ = world.run()
+    assert code == 0 and world.record().runner == "codex"

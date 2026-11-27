@@ -102,3 +102,23 @@ def test_fill_auto_token_cap_fails_the_second_session(w, codex, monkeypatch):
     codex.plan(STEP, STEP)
     result = corroborate_fill.fill_auto(str(w.fake), 0.25)
     assert len(codex.calls) == 1 and "checker" in result["stopped"] and result["written"] == 0
+
+
+def _staged_run(w, codex, *args, **env):
+    a, b = two_projects(w)
+    model(w, [group(a, b)])
+    codex.plan(STEP, STEP)
+    return run(w, *args, env=env)
+
+
+def test_the_flag_beats_mem_runner(w, codex):
+    done = _staged_run(w, codex, "--runner", "codex", MEM_RUNNER="claude")
+    assert done.returncode == 0, done.stderr
+    assert status(w)["runner"] == "codex"
+
+
+def test_the_plugin_option_alone_picks_codex(w, codex, monkeypatch):
+    monkeypatch.delenv("MEM_RUNNER")
+    done = _staged_run(w, codex, MEM_RUNNER_OPTION="codex")
+    assert done.returncode == 0, done.stderr
+    assert status(w)["runner"] == "codex"

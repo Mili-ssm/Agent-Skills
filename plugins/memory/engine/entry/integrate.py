@@ -559,6 +559,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--budget", type=_budget_arg, help=f"USD per run (default {DEFAULT_BUDGET})"
     )
+    runners.add_flag(parser)
     parser.add_argument(
         "--dry-run", action="store_true", help="list what would run; start and change nothing"
     )
@@ -587,6 +588,7 @@ def main(argv: list[str] | None = None) -> int:
         return integrate_self_check.self_check(sys.modules[__name__])
     if not args.command and not args.undo:
         parser.error("a command or --undo RUN is required")
+    runners.pin_flag(args.runner)
     store = args.store.expanduser().resolve() if args.store else synth_run.default_store()
     if store is None or not (store / "mem-store.yaml").is_file():
         print(f"mem-integrate: no store at {store}", file=sys.stderr)

@@ -21,13 +21,15 @@ ALPHA = (
 USAGE_BAD_BUDGET = (
     "usage: mem-synthesize [-h] [--backfill [s:HANDLE ...]] [--topic TOPIC]\n"
     "                      [--budget BUDGET] [--no-references] [--dry-run]\n"
-    "                      [--store STORE] [--claude CLAUDE] [--self-check]\n"
+    "                      [--store STORE] [--claude CLAUDE]\n"
+    "                      [--runner {claude,codex}] [--self-check]\n"
     "mem-synthesize: error: argument --budget: invalid float value: 'abc'\n"
 )
 HELP_SYNTHESIZE = """\
 usage: mem-synthesize [-h] [--backfill [s:HANDLE ...]] [--topic TOPIC]
                       [--budget BUDGET] [--no-references] [--dry-run]
-                      [--store STORE] [--claude CLAUDE] [--self-check]
+                      [--store STORE] [--claude CLAUDE]
+                      [--runner {claude,codex}] [--self-check]
 
 mem-synthesize: write syntheses for topics that have none, quietly, one
 headless session per step.
@@ -46,11 +48,15 @@ options:
   --store STORE         default: the store `mem` resolves (MEM_STORE, else the
                         default)
   --claude CLAUDE
+  --runner {claude,codex}
+                        claude or codex; outranks MEM_RUNNER, the runner
+                        config file and the plugin option (default claude)
   --self-check          no model: prove the parsers and a run with a fake
                         claude
 """
 HELP_AUTO = """\
-usage: mem-auto [-h] [--store STORE] [--claude CLAUDE] [--budget BUDGET]
+usage: mem-auto [-h] [--store STORE] [--claude CLAUDE]
+                [--runner {claude,codex}] [--budget BUDGET]
                 [--threshold THRESHOLD] [--self-check]
                 [{run,status,ack,due}]
 
@@ -65,6 +71,9 @@ options:
   --store STORE         default: the store `mem` resolves (MEM_STORE, else the
                         default)
   --claude CLAUDE
+  --runner {claude,codex}
+                        claude or codex; outranks MEM_RUNNER, the runner
+                        config file and the plugin option (default claude)
   --budget BUDGET       USD per run (default: the option auto_curation_budget,
                         else 2.0)
   --threshold THRESHOLD
@@ -75,7 +84,8 @@ options:
 """
 HELP_SETTLE = """\
 usage: mem-settle [-h] [--store STORE] [--claude CLAUDE] [--budget BUDGET]
-                  [--minutes MINUTES] [--dry-run] [--self-check]
+                  [--runner {claude,codex}] [--minutes MINUTES] [--dry-run]
+                  [--self-check]
                   [{run,status,ack}]
 
 mem-settle: one bounded settling run in the background (plan
@@ -85,15 +95,18 @@ positional arguments:
   {run,status,ack}
 
 options:
-  -h, --help         show this help message and exit
-  --store STORE      default: the store `mem` resolves (MEM_STORE, else the
-                     default)
+  -h, --help            show this help message and exit
+  --store STORE         default: the store `mem` resolves (MEM_STORE, else the
+                        default)
   --claude CLAUDE
-  --budget BUDGET    USD per run (default 0.25)
-  --minutes MINUTES  a run starts only when the last apply ended more than
-                     this long ago (default 30; 0 at the end of a session)
-  --dry-run          say whether `run` would start; change nothing
-  --self-check       no model: prove the lock, the gates and the tool list
+  --budget BUDGET       USD per run (default 0.25)
+  --runner {claude,codex}
+                        claude or codex; outranks MEM_RUNNER, the runner
+                        config file and the plugin option (default claude)
+  --minutes MINUTES     a run starts only when the last apply ended more than
+                        this long ago (default 30; 0 at the end of a session)
+  --dry-run             say whether `run` would start; change nothing
+  --self-check          no model: prove the lock, the gates and the tool list
 """
 DRY_TOPICS = (
     "mem-synthesize dry run: 2 topics: one, two; each ends with a reference step (--no-references skips it); "

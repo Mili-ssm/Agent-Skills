@@ -7,9 +7,10 @@ import pytest
 from core import codex_pass
 from core import runner as runners
 from entry import settle
-from test_settle_run import seed, settle_run, status, world
+from settle import state as settle_state
+from test_settle_run import on, remember, seed, settle_run, status, world
 
-__all__ = ["world"]  # re-exported: pytest finds the fixture in this module by its name
+__all__ = ["on", "world"]  # re-exported: pytest finds the fixture in this module by its name
 
 WRITE_VERDICTS = (
     "pairs = json.load(open('pairs.json'))\n"
@@ -72,3 +73,36 @@ def test_no_codex_binary_is_a_failure(world, codex, monkeypatch):
     seed(world)
     assert settle.cmd_run(world.store, "", None, 0) == 0
     assert codex_pass.NO_CODEX in status(world)["reason"] and not codex.calls
+
+
+def test_the_flag_beats_mem_runner(world, codex):
+    seed(world)
+    codex.plan({"py": WRITE_VERDICTS, "answer": "1", "tokens": TOKENS})
+    done = settle_run(world, "--runner", "codex", env={"MEM_RUNNER": "claude"})
+    assert done.returncode == 0 and status(world)["runner"] == "codex"
+    assert len(codex.calls) == 1
+
+
+def test_the_plugin_option_alone_picks_codex_for_a_started_run(world, codex, monkeypatch):
+    """What a hook-started settle sees: `MEM_RUNNER_OPTION` and no `MEM_RUNNER`; Codex is found by `MEM_CODEX`."""
+    monkeypatch.delenv("MEM_RUNNER")
+    seed(world)
+    codex.plan({"py": WRITE_VERDICTS, "answer": "1", "tokens": TOKENS})
+    done = settle_run(world, env={"MEM_RUNNER_OPTION": "codex"})
+    assert done.returncode == 0 and status(world)["runner"] == "codex"
+    assert len(codex.calls) == 1
+
+
+def test_the_write_path_trigger_hands_the_plugin_option_to_the_run(world, on, monkeypatch):
+    """`session-env.sh` puts `MEM_RUNNER_OPTION` in the session's shell commands; the settle run they start inherits
+    it (`env=dict(environ)`) and never gets it as `MEM_RUNNER`."""
+    seed(world, new=False)
+    started = []
+    monkeypatch.setattr(
+        settle_state.subprocess, "Popen", lambda cmd, **kw: started.append(kw["env"])
+    )
+    monkeypatch.setenv("MEM_RUNNER_OPTION", "codex")
+    monkeypatch.delenv("MEM_RUNNER", raising=False)
+    assert remember(world) == 0
+    (env,) = started
+    assert env["MEM_RUNNER_OPTION"] == "codex" and "MEM_RUNNER" not in env

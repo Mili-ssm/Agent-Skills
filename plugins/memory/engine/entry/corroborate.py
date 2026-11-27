@@ -36,6 +36,7 @@ import sys
 import time
 
 from capture import state as cs
+from core import runner as runners
 from corroborate import state as corroborate_state
 
 try:  # `auto` must still be able to write a failed status when the engine cannot be imported (e.g. no yaml)
@@ -97,6 +98,7 @@ def main() -> int:
         "run", help="match the lessons by meaning and apply the verified groups"
     )
     run.add_argument("--claude", default=default_claude)
+    runners.add_flag(run)
     run.add_argument(
         "--budget",
         type=corroborate_state.budget_of,
@@ -121,6 +123,7 @@ def main() -> int:
         help="propose the short form and topic of lessons for the owner to read, or apply that file",
     )
     fill.add_argument("--claude", default=default_claude)
+    runners.add_flag(fill)
     fill.add_argument(
         "--budget",
         type=corroborate_state.budget_of,
@@ -142,6 +145,7 @@ def main() -> int:
         "reword", help="write a new short form for loaded lessons that got worse, as the pass does"
     )
     reword.add_argument("--claude", default=default_claude)
+    runners.add_flag(reword)
     reword.add_argument(
         "--budget",
         type=corroborate_state.budget_of,
@@ -168,6 +172,7 @@ def main() -> int:
         help="write the heading and the lines of the loaded lessons' digest, as the pass does",
     )
     digest_cmd.add_argument("--claude", default=default_claude)
+    runners.add_flag(digest_cmd)
     digest_cmd.add_argument(
         "--budget",
         type=corroborate_state.budget_of,
@@ -187,6 +192,7 @@ def main() -> int:
         "auto", help="what a hook starts: one run when the option is on; silent"
     )
     auto.add_argument("--claude", default=default_claude)
+    runners.add_flag(auto)
     auto.set_defaults(func=_command("cmd_auto", _auto_without_engine))
     undo = commands.add_parser("undo", help="put back the files a run changed")
     undo.add_argument("stamp")
@@ -202,4 +208,5 @@ def main() -> int:
         return _no_engine(args) if corroborate_cli is None else corroborate_cli.self_check()
     if not args.command:
         parser.error("a command is required")
+    runners.pin_flag(getattr(args, "runner", None))
     return args.func(args)

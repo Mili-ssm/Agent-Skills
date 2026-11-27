@@ -544,6 +544,7 @@ def _parser() -> argparse.ArgumentParser:
         "--claude", default=os.environ.get("CLAUDE_CODE_EXECPATH") or shutil.which("claude")
     )
     parser.add_argument("--budget", help=f"USD per run (default {DEFAULT_BUDGET})")
+    runners.add_flag(parser)
     parser.add_argument(
         "--minutes",
         help=f"a run starts only when the last apply ended more than this long ago "
@@ -585,6 +586,7 @@ def main() -> int:
         return self_check()
     if not args.command:
         parser.error("a command is required")
+    runners.pin_flag(args.runner)
     store = _requested_store(args)
     if store is None or not (store / "mem-store.yaml").is_file():
         return _no_store(args.command, store)
