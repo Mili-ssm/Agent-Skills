@@ -1,6 +1,6 @@
 # Memory seamless, stage 3: integration and sibling updates Implementation Plan
 
-Status: built in the reduced scope, waiting for the owner's cap for the paid trial (Task 8, Step 6) · Date: 2026-11-26, built 2026-11-27 · Branch: feat/memory-seamless-integrate
+Status: built in the reduced scope; paid trial passed 2026-11-27, no append placed (seamless plan § Results, "Stage 3 trial") · Date: 2026-11-26, built 2026-11-27 · Branch: feat/memory-seamless-integrate
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -14,7 +14,7 @@ Status: built in the reduced scope, waiting for the owner's cap for the paid tri
 
 ## State on 2026-11-27 (where to resume)
 
-Built: Tasks 1, 2, 5, 6a, 6b, 6c, 7 and 8 in the reduced scope below; Tasks 3 and 4 not built. Every task had a reviewer's first round and a fix round; the fixes had a reviewer's second round, except four last fix commits that were confirmed by their tests and the controller's reading instead (11d9d22, 665aa1e, 81856a6 with a mutation run that fails its two tests, bcfb464). Three end reviews (docs against code, organization, process) followed. Next: the owner's cap for the paid trial (Step 6 of Task 8), then `python3 plugins/memory/evals/integrate/run_trial.py --budget <cap>`, the Sonnet audit of the appended sentences, and `run_trial.py verdict RESULT --audit-reply FILE --audit-cost USD`.
+Built: Tasks 1, 2, 5, 6a, 6b, 6c, 7 and 8 in the reduced scope below; Tasks 3 and 4 not built. Every task had a reviewer's first round and a fix round; the fixes had a reviewer's second round, except four last fix commits that were confirmed by their tests and the controller's reading instead (11d9d22, 665aa1e, 81856a6 with a mutation run that fails its two tests, bcfb464). Three end reviews (docs against code, organization, process) followed. Paid trial run 2026-11-27 (cap 0.30 USD): pass on every kill criterion, 0 of 17 appends placed; result and open point in the seamless plan § Results, "Stage 3 trial".
 
 | Check | Result |
 |---|---|

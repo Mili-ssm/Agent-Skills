@@ -22,7 +22,7 @@ Item 4d is closed: the offload tables load from session start hooks (ADR 0032). 
 1. Set aside (owner, 2026-11-26): the `ui-verifier` eval case (3g) ran 0/2 because no browser launches in the eval sandbox (ADR 0017 Measurement 2026-11-26).
 2. P1 and B1: done (ADR 0017 Measurement 2026-11-26, P1), merged into `dev` on 2026-11-27 (PR #218).
 3. Memory refactor: merged to dev through #217 on 2026-11-26 (A1–A3, A5–A7, A14, `bin/` through `uv` in #216, ADR 0035); left: A4's shared corroborate job runner, A8 (tool-fold), the low items below.
-4. Memory effect measurement ([plan](superpowers/plans/2026-11-26-memory-effect-measurement.md)): the pilot showed no headroom; the owner asked on 2026-11-27 for a scenario the model fails without the lesson (its task 8). Memory seamless stage 3: reduced scope built on 2026-11-27 (`mem synthesis integrate`, `mem-integrate run`, `--undo`, the trial harness); its paid trial waits for the owner's cap ([seamless plan](superpowers/plans/2026-11-17-memory-seamless.md), [task plan](superpowers/plans/2026-11-26-memory-seamless-stage-3-integration.md)).
+4. Memory effect measurement ([plan](superpowers/plans/2026-11-26-memory-effect-measurement.md)): the pilot showed no headroom; the owner asked on 2026-11-27 for a scenario the model fails without the lesson (its task 8). Memory seamless stage 3: reduced scope built on 2026-11-27 (`mem synthesis integrate`, `mem-integrate run`, `--undo`, the trial harness); its paid trial passed on 2026-11-27 with no append placed ([seamless plan](superpowers/plans/2026-11-17-memory-seamless.md), [task plan](superpowers/plans/2026-11-26-memory-seamless-stage-3-integration.md)).
 5. Memory kill read: formal record on 2026-12-01; a provisional read on 2026-11-26 gives a day ratio of 10/10, its denominator all session days because session starts carry no outside flag; details in the [memory plan](superpowers/plans/2026-11-17-memory-plugin.md) § Current state.
 
 Done 2026-11-25 (branch `feat/repo-tooling`, ADR 0029): Q1, Q2, Q3, A9, A10, B9–B12; the Codex mapping now derives from `shared/models.toml`.
@@ -93,7 +93,7 @@ Owner order: refactor → effect measurement (2026-11-26) → seamless stage 3 �
 | medium | D6 | Split `plugins/memory/README.md` | Open |
 | low | S5 | Capture-born rules load without owner triage | Open |
 | low | — | Two hardening notes on note writes | Decide when touched |
-| medium | Seamless 3 | Integration and sibling updates (T2–T5) | Attachment path built 2026-11-27 (reduced scope); paid trial waits for the owner's cap; sibling updates deferred until 20 unattached notes or two contradicting notes |
+| medium | Seamless 3 | Integration and sibling updates (T2–T5) | Attachment path built 2026-11-27 (reduced scope); paid trial passed 2026-11-27, 0 of 17 appends placed (why: open); sibling updates deferred until 20 unattached notes or two contradicting notes |
 | low | Seamless 3 | One home for what `mem-integrate` and `mem-settle` share (session builder, budget, constants) and for the join logic now in `commands/integrate.py` | Open; when either runner is next touched |
 | low | Seamless 4, 5 | Split a synthesis; join `mem-auto` | After their trials |
 | low | Stages 7, 8, 9, 10 | Remote sync; Rust decision; capture experiment; project syntheses results | Open |

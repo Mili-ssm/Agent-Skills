@@ -4,6 +4,8 @@ Owner, 2026-11-17: the global memory should work as an internal mechanism of the
 
 **Status (2026-11-19):** stages W and 1 are built, measured and merged into `main` (PR 128, PR 129). Stage 2 is built, measured and merged (PR 136, branch `feat/memory-inline-refs`): references are added after writing, and the confirming run passed (see "Stage 2 confirming run" under "Results"). Task 6 is done on the real store (2026-11-19: the link fixed, the plugin updated, 3572 references added), and the reference audit **failed** (Haiku: 15 and 10 wrong in 100, repeating itself on only 6; Sonnet on the 19 flagged pairs: 3 wrong, limit 2). The owner lifted the block with a condition on what a reference means (see "Stage 3"); stage 3 can start. Stages 3 to 5 are not started.
 
+**Status (2026-11-27):** stage 3 built in a reduced scope (attachment path; sibling updates deferred) and its paid trial passed every kill criterion, with no append placed (see "Stage 3 trial" under "Results"). Stages 4 and 5 are not started.
+
 ## Where to resume: stages 2 to 5
 
 Stage 2 is merged (PR 136, 2026-11-24 check). Stage 3 is built in a reduced scope on 2026-11-27, the attachment path without sibling updates (`mem synthesis integrate`, `mem-integrate run`, `--undo`, its trial harness; [task plan and state](2026-11-26-memory-seamless-stage-3-integration.md#state-on-2026-11-27-where-to-resume)); its paid trial waits for the owner's cap. Stages 3 and 4 need stage 2's inline references, and stage 5 only wires what the others measured. One branch per stage; a merge into `main` needs the owner's word each time.
@@ -433,3 +435,20 @@ Open:
 - `quantitative-finance` got 25 proposals for 276 units in the costliest session (0.81 USD): probably a cut answer, not confirmed; its parts are marked done.
 - The 37 refusals of the second pass are not classified.
 - Cost: nine of 24 sessions cost 0.2 to 0.8 USD against 0.03 to 0.06 for the rest; `ESTIMATE_PER_BACKFILL` (0.05) is low by about four times on this store.
+
+### Stage 3 trial
+
+Run 2026-11-27 (`run_trial.py --budget 0.30`, owner's cap; run `20261127-091150-2443352`): **PASS on every kill criterion.** One synthesis, 33 seeded notes, two Haiku sessions (place, check); sessions 0.012 USD against an estimate of 0.149; no appended sentence, so the Sonnet audit had nothing to read (empty reply, 0 USD).
+
+| Label | Seeded | Attached | Wrong |
+|---|---|---|---|
+| append | 17 | 0 | 0 |
+| belongs-existing-sentence | 5 | 5 | 0 |
+| duplicate-of-existing | 3 | 3 | 0 |
+| on-topic-no-fit | 4 | 0 | 0 |
+| superseded | 2 | 0 | 0 |
+| disputed | 2 | 0 | 0 |
+
+Criteria: seed size, append share, wrong attachment 0, unbacked sentences 0, another note changed 0, stale to current 0, undo byte for byte, cost: all pass.
+
+Finding: the run is safe but appends nothing. Of 17 notes meant to add a sentence, none was placed; all 8 integrations were references on existing sentences (5 of 5 and 3 of 3 correct). No kill criterion covers append recall, so the pass says `mem-integrate` does no harm, not that it fills syntheses. Open: why the place or check session rejects every append (read the session answers of a rerun before changing a prompt); the post-merge criterion of Task 8 (fewer than about 10 candidates in `mem curate --notes` two weeks later parks `mem-integrate`) still applies.
