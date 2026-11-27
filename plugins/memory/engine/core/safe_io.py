@@ -1,0 +1,155 @@
+"""Writes into memory folders that never follow a symlink.
+
+A cloned repository can ship a `.memory/` folder with planted symlinks; a write that follows one would
+overwrite a file elsewhere. Files are replaced through an unpredictable temporary name (`os.replace` swaps a
+symlink at the target itself, never what it points to) and logs are appended with `O_NOFOLLOW`."""
+
+from __future__ import annotations
+
+import contextlib
+import os
+import stat
+import tempfile
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+
+class UnsafePathError(OSError):
+    """A path that is, or sits under, a symlink where the caller refuses one."""
+
+
+UnsafePath = UnsafePathError  # public name kept for callers
+
+
+def _umask() -> int:
+    mask = os.umask(0)
+    os.umask(mask)
+    return mask
+
+
+def _close_quietly(fd: int) -> None:
+    with contextlib.suppress(OSError):  # fdopen may already have closed it; keep the original error
+        os.close(fd)
+
+
+def _default_mode(path: Path) -> int:
+    """The mode of `path` when it is a regular file, else `0o666 & ~umask`."""
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        return 0o666 & ~_umask()
+    return stat.S_IMODE(st.st_mode) if stat.S_ISREG(st.st_mode) else 0o666 & ~_umask()
+
+
+def _write_fd(fd: int, data: bytes) -> None:
+    try:
+        f = os.fdopen(fd, "wb")
+    except BaseException:
+        _close_quietly(fd)
+        raise
+    with f:
+        f.write(data)
+
+
+def replace_file(path: Path, data: bytes, mode: int | None = None) -> None:
+    """Write `data` to a fresh temporary file beside `path`, then move it over `path`.
+
+    The mode is `mode` when given, else the one `path` has when it is a regular file, else `0o666 & ~umask`."""
+    if mode is None:
+        mode = _default_mode(path)
+    fd, name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        _write_fd(fd, data)
+        os.chmod(name, mode)
+        os.replace(name, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(name)
+        raise
+
+
+def append_text(path: Path, text: str) -> None:
+    """Append `text` to `path`, creating it; a symlink at `path` raises OSError."""
+    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o644)
+    try:
+        f = os.fdopen(fd, "w", encoding="utf-8", newline="")
+    except BaseException:
+        _close_quietly(fd)
+        raise
+    with f:
+        f.write(text)
+
+
+def refuse_symlink_chain(root: Path, path: Path) -> None:
+    """Raise UnsafePath when `root` or any component of `path` below `root` is a symlink."""
+    if root.is_symlink():
+        raise UnsafePathError(f"{root} is a symlink")
+    current = root
+    try:
+        parts = path.relative_to(root).parts
+    except ValueError:
+        raise UnsafePathError(f"{path} is not under {root}") from None
+    for part in parts:
+        current /= part
+        if current.is_symlink():
+            raise UnsafePathError(f"{current} is a symlink")
+
+
+# Sandbox of the background sessions (`mem-auto`, `mem-synthesize`): their text may come from injected notes, so a
+# session started with MEM_SANDBOX=1 reaches no network and reads body files only under MEM_SANDBOX_ROOTS and its
+# working folder, and no other registered project's memories.
+SANDBOX = "MEM_SANDBOX"
+SANDBOX_ROOTS = "MEM_SANDBOX_ROOTS"
+_SANDBOX_COMMANDS = ("import", "fetch-sources")
+
+
+def sandbox_active(env: Mapping[str, str] | None = None) -> bool:
+    return (os.environ if env is None else env).get(SANDBOX) == "1"
+
+
+def body_file_allowed(source: str) -> bool:
+    """`-` (standard input) and any file under MEM_SANDBOX_ROOTS or the working directory; symlinks resolved."""
+    if source == "-":
+        return True
+    roots = [
+        Path.cwd(),
+        *(Path(r) for r in os.environ.get(SANDBOX_ROOTS, "").split(os.pathsep) if r),
+    ]
+    target = Path(os.path.realpath(source))
+    return any(target.is_relative_to(os.path.realpath(r)) for r in roots)
+
+
+def _option_refusal(command: str, args: dict) -> str | None:
+    if command in _SANDBOX_COMMANDS:
+        return f"{command} is off in this session"
+    if command == "new" and args.get("url"):
+        return "--url is off in this session"
+    for key in ("all_projects", "project"):
+        # other registered projects' memories are not in the session's read scope; curate's --project is the flag `is_project`
+        if args.get(key):
+            return f"--{key.replace('_', '-')} is off in this session"
+    return None
+
+
+def _file_refusal(args: dict) -> str | None:
+    for key, value in args.items():
+        # every option that names a file to read: --body-file, --note-body-file, --summary-file, curate --from, refs --file
+        if (
+            (key == "file" or key.endswith("_file"))
+            and isinstance(value, str)
+            and not body_file_allowed(value)
+        ):
+            return (
+                f"--{key.replace('_', '-')} is outside the folders this session may read: {value}"
+            )
+    return None
+
+
+def sandbox_refusal(command: str, args: dict) -> str | None:
+    """Why a `mem` call is refused in a sandboxed session, else None. `args` holds the parsed options."""
+    if not sandbox_active():
+        return None
+    return _option_refusal(command, args) or _file_refusal(args)

@@ -10,7 +10,7 @@ Status: done · merged in #122, 2026-11-17; `mem history init` ran on the defaul
 
 **Tech Stack:** Python 3.12+, git through `subprocess` (no new dependency), pytest.
 
-**Status:** planned 2026-11-17.
+Earlier status: planned 2026-11-17.
 
 ## Decisions already taken (owner, 2026-11-17)
 

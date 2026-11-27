@@ -1,10 +1,10 @@
 """`mem remember --origin`: web and pipeline writes are marked and do not start the automatic run."""
+
 import time
 
-import pytest
-
 import mem
-import records
+import pytest
+from memories import records
 
 
 @pytest.fixture
@@ -24,8 +24,11 @@ def test_origin_is_stored_and_a_session_write_has_none(gfolder):
     assert remember("--origin", "pipeline", claim="Another claim entirely.") == 0
     assert remember(claim="A claim from a session.") == 0
     got = {m.handle: m.origin for m in records.load_memories(gfolder, "global")}
-    assert got == {"retries-need-idempotency-keys": "web", "another-claim-entirely": "pipeline",
-                   "a-claim-from-a-session": None}
+    assert got == {
+        "retries-need-idempotency-keys": "web",
+        "another-claim-entirely": "pipeline",
+        "a-claim-from-a-session": None,
+    }
     assert "origin" not in (gfolder / "a-claim-from-a-session.md").read_text()
 
 
@@ -45,7 +48,9 @@ def test_a_web_memory_is_marked_unconfirmed_in_search_and_memories(gfolder, hub_
     assert "pipeline" not in out and "Idempotency keys expire daily." in out
     assert mem.main(["memories", "--global"]) == 0
     lines = capsys.readouterr().out.splitlines()
-    assert [ln for ln in lines if "web, unconfirmed" in ln] == [next(ln for ln in lines if "Retries need" in ln)]
+    assert [ln for ln in lines if "web, unconfirmed" in ln] == [
+        next(ln for ln in lines if "Retries need" in ln)
+    ]
 
 
 def test_new_since_leaves_out_web_and_pipeline_records(gfolder, capsys):

@@ -1,8 +1,10 @@
 # Memory plugin security fixes Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+Status: done · merged in #182, 2026-11-24 · unticked boxes are not open work
 
-Status: done on the branch, pull request pending the owner's go-ahead (pre-mortem amendments applied; S2 reduced to the light design, owner 2026-11-24) · Date: 2026-11-24 · Branch `fix/memory-security` from `dev`
+Date: 2026-11-24 · Branch `fix/memory-security` from `dev`
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A cloned repository's `.memory/` folder can no longer overwrite user files, pass its memories off as owner-vouched, lift them into global ones through corroboration, make the engine fetch private addresses, or let a background session send local files out.
 

@@ -1,5 +1,7 @@
 # Memory capture, stage B3: corroboration, quarantine and triage Implementation Plan
 
+Status: done · merged in #154, 2026-11-22
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A lesson of reach `general` gets one global record that stays in quarantine (unread) until it is seen in enough sessions and projects, then is read and waits for triage; reworded duplicates inside a project are merged; a session left open is captured at the next session start.

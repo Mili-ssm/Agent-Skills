@@ -1,5 +1,7 @@
 # Memory: stuck short forms in curation, owner-confirmed manual lessons
 
+Status: done · merged in #185, 2026-11-24
+
 Owner request 2026-11-24. Branch `fix/memory-curate-short-forms` from `dev`.
 
 ## Why

@@ -1,5 +1,7 @@
 # Memory handoff block and compaction log Implementation Plan
 
+Status: done · merged in #148, 2026-11-21
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** After a compaction the agent resumes from a handoff block it wrote itself, a hook checks that block against the files and speaks only on a mismatch, and every compaction leaves one log line that the usage script turns into outcome metrics.

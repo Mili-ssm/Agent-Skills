@@ -1,8 +1,10 @@
 # Recall through a cheaper subagent: experiment plan
 
-**Goal:** Find out whether the `memory-researcher` subagent answers questions from the memory as well on Haiku as on Sonnet (its model today), and at what cost, as the first step of the owner's open item 7: memory work by secondary models of predictable cost that return only what matters to the main model.
+Status: done · merged in #123, 2026-11-17
 
-**Status:** done 2026-11-17: Haiku adopted.
+Outcome: done 2026-11-17: Haiku adopted.
+
+**Goal:** Find out whether the `memory-researcher` subagent answers questions from the memory as well on Haiku as on Sonnet (its model today), and at what cost, as the first step of the owner's open item 7: memory work by secondary models of predictable cost that return only what matters to the main model.
 
 ## Decisions already taken (owner, 2026-11-17)
 

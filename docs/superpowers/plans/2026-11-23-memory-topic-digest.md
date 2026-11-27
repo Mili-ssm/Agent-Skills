@@ -1,5 +1,7 @@
 # Digest per topic and new limits of the loaded lessons Implementation Plan
 
+Status: done · merged in #174, 2026-11-23
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** The loaded lessons have no limit of number and twice the characters, with a third kept for an index of the rest by topic; and, behind the option value `rules_layout: digest`, each topic prints a heading with the situation its lessons share and one line per lesson that leans on it, written by the background pass and checked, with the short forms as fallback.

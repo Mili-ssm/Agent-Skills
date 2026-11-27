@@ -2,16 +2,12 @@
 # SessionStart hook: prints the memory index that opens the session. The hook's JSON on standard input
 # goes to `mem`, which finds the project from its `cwd`. Hook processes do not get the variables that
 # session-env.sh exports for shell commands, so the options are passed on here.
-# Silent and always exit 0, also when uv or mem fail: a failing hook would disturb every session.
-[ -n "${CLAUDE_PLUGIN_OPTION_STORE:-}" ] && export MEM_STORE="$CLAUDE_PLUGIN_OPTION_STORE"
-if [ -z "${CLAUDE_PLUGIN_OPTION_STORE:-}" ]; then # no option: the default store, made by session-env.sh
-  data="${XDG_DATA_HOME:-${HOME:+$HOME/.local/share}}"
-  [ -n "$data" ] && [ -f "$data/agent-memory/store/mem-store.yaml" ] && export MEM_STORE="$data/agent-memory/store"
-fi
-[ -n "${CLAUDE_PLUGIN_OPTION_MEMORIES:-}" ] && export MEM_MEMORIES="$CLAUDE_PLUGIN_OPTION_MEMORIES"
+# Always exit 0, also when uv or mem fail: a failing hook would disturb every session. When mem does not answer
+# and uv is missing, the session text carries one line naming uv; otherwise no error reaches the session.
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || here=""
+. "$here/store-env.sh" 2>/dev/null; type export_store_env >/dev/null 2>&1 && export_store_env
 [ "${CLAUDE_PLUGIN_OPTION_LOADED_RULES:-}" = "false" ] && export MEM_LOADED_RULES=off   # option loaded_rules, default on
 case "${CLAUDE_PLUGIN_OPTION_RULES_LAYOUT:-}" in grouped|digest) export MEM_RULES_LAYOUT="$CLAUDE_PLUGIN_OPTION_RULES_LAYOUT" ;; esac   # option rules_layout, default flat
-here="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || here=""
 if command -v timeout >/dev/null 2>&1; then input=$(timeout 2 cat 2>/dev/null); else input=$(cat 2>/dev/null); fi   # read once, never wait on an input left open
 # Sweep (option auto_capture, exactly "true"): start mem-capture sweep detached, as session-end.sh starts `auto`. It
 # captures sessions of this folder that were left open and never ended; nothing here waits on it.
@@ -39,6 +35,7 @@ if [ -n "$out" ]; then
   printf '%s\n' "$out"
 else
   # mem did not answer (no uv, a cold cache, a time-out): the rules still open the session, without the counts.
+  command -v uv >/dev/null 2>&1 || echo "memory: uv is not installed, so mem and the plugin's background passes cannot run (https://docs.astral.sh/uv/)."
   cat <<'TXT'
 memory: the mem command searches notes and memories (skill: memory).
 - Before you act on this project, change something or research a topic: mem search "<topic in English>". It returns decisions, constraints and pitfalls recorded earlier that the files do not show.

@@ -7,9 +7,13 @@ repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.17.6
     hooks:
+      # Python only: the hook's default types include Markdown, and rewriting code blocks inside
+      # docs and plans changes historical text.
       - id: ruff-check
         args: [--fix]
+        types_or: [python, pyi]
       - id: ruff-format
+        types_or: [python, pyi]
   - repo: local
     hooks:
       - id: basedpyright

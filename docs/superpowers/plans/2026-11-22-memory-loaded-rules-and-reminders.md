@@ -1,6 +1,8 @@
 # Memory capture, stage B4: loaded rules and reminders
 
-**Status (2026-11-22): designed and ruled on by the owner (decisions C40 to C51 of the spec). Reminders were built on the branch `idea/memory-reminders` and parked there by the owner (C51): not integrated. Loaded rules C46 to C48 shipped in 0.5.0 ([plan](2026-11-22-memory-loaded-rules.md)), the automatic path (C52) in 0.6.0, the case log (first half of C49, C64 to C71) in 0.7.0; what remains of B4 is the rest of C49 and the automatic attempt of C72.**
+Status: in progress · the rest of C49 (usefulness) and the automatic attempt of C72 remain; reminders stay parked on `idea/memory-reminders` (C51)
+
+Outcome (2026-11-22): designed and ruled on by the owner (decisions C40 to C51 of the spec). Reminders were built on the branch `idea/memory-reminders` and parked there by the owner (C51): not integrated. Loaded rules C46 to C48 shipped in 0.5.0 ([plan](2026-11-22-memory-loaded-rules.md)), the automatic path (C52) in 0.6.0, the case log (first half of C49, C64 to C71) in 0.7.0; what remains of B4 is the rest of C49 and the automatic attempt of C72.
 
 **Spec:** [the capture design](../specs/2026-11-21-memory-capture-design.md), phase B4; decisions C13, C15, C18, C19, C20, C38. Earlier stage: [B3, plan and results](2026-11-22-memory-capture-corroboration.md). Evidence: the learning loop study (`.local/studies/2026-11-21-memory-learning-loop.md`, local, not published) (E4: context files raised cost with no gain in success) and ADR 0023, "Stage B3".
 

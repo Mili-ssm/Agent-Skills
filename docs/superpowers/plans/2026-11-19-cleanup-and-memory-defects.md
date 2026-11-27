@@ -1,5 +1,7 @@
 # Cleanup and memory defects
 
+Status: done · merged in #144, 2026-11-19
+
 Goal (owner, 2026-11-19): tidy the repository after the public release and fix the small open defects of the memory plugin. CI stays out until the plugins have a reasonable number of users (owner); public repositories run GitHub Actions on standard runners without consuming minutes, noted for when it is reopened.
 
 - [x] 1. Branches: 24 local and 35 remote branches merged into `dev` deleted (owner approved the remote ones); GitHub keeps `main` and `dev`. Check: `git branch -a`.

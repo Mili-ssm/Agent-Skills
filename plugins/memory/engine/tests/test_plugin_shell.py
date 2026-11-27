@@ -5,10 +5,10 @@ import subprocess
 import time
 from pathlib import Path
 
-import handoff
 import mem
 import pytest
-import store_git
+from core import store_git
+from session import handoff
 from test_capture_auto import hook as capture_hook
 from test_capture_auto import world
 from test_mem_capture import FAKE
@@ -577,7 +577,7 @@ def test_session_end_hook_commits_the_store(hub_root, tmp_path):
             "python3",
             "-c",
             (
-                f"import sys; sys.path.insert(0, {sys_path!r}); import store_git, pathlib; "
+                f"import sys; sys.path.insert(0, {sys_path!r}); from core import store_git; import pathlib; "
                 f"store_git.init(pathlib.Path({str(hub_root)!r}))"
             ),
         ],
@@ -658,7 +658,7 @@ def _stub_plugin(tmp_path, commit_sleep):
     root = tmp_path / "plug"
     (root / "hooks").mkdir(parents=True)
     (root / "bin").mkdir()
-    for name in ("session-end.sh", "find-claude.sh"):
+    for name in ("session-end.sh", "find-claude.sh", "store-env.sh"):
         shutil.copy(HOOKS / name, root / "hooks" / name)
     order = tmp_path / "order.txt"
     stubs = {

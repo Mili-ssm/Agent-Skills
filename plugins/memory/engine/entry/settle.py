@@ -1,0 +1,542 @@
+"""mem-settle: one bounded settling run in the background (plan 2026-11-17-memory-seamless, stage W).
+
+`run` (detached, no output): takes the run lock first and exits quietly when it is busy; asks `mem settle due` whether
+new global memories wait and the last apply ended more than `--minutes` ago (a failed run also waits that long before
+the next); `mem settle pending --json` writes the look-alike pairs to a work folder; with none the run ends (no
+session). Otherwise ONE headless Haiku session reads the pairs file and writes `verdicts.json`: it has no Bash, so it
+cannot call `mem` itself, and Python applies the file with `mem settle apply`, which enforces what may change. A session
+that fails, ends without a cost report, or leaves no valid verdict list changes nothing and is recorded as a failure,
+shown by the next session start text until `mem-settle ack`. State, logs and transcripts: `<state folder>/settle/<id>/`
+(mode 0700, runs kept 30 days). It never reads or writes the `mem-auto` status.
+
+Usage: mem-settle run [--store PATH] [--claude PATH] [--budget USD] [--minutes M] | status | ack | --self-check
+       mem-settle run --dry-run   (says whether it would start; starts nothing and changes nothing)
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import math
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
+from core import headless, jobs
+from settle import state as ss
+from synthesize import pipeline as sp
+from synthesize import run as synth_run
+
+DEFAULT_BUDGET = 0.25  # USD per run
+KEEP_SECONDS = 30 * 86400
+SESSION_TIMEOUT = 600
+PRIVATE_MODE = 0o700
+FAILURE_WAIT = (
+    30  # minutes a failed run waits at least, also at session end (which asks with 0 minutes)
+)
+SESSION_VARS = (
+    "CLAUDE_ENV_FILE",
+    "CLAUDE_PLUGIN_ROOT",
+    "CLAUDE_PLUGIN_DATA",
+    "CLAUDE_PROJECT_DIR",
+    "CLAUDE_PID",
+    "CLAUDE_CODE_SESSION_ID",
+    "CLAUDE_CODE_MESSAGING_SOCKET",
+    "CLAUDE_CODE_MESSAGING_TOKEN",
+)
+
+
+def budget_of(value: str | float | None) -> float:
+    if value is None:
+        return DEFAULT_BUDGET
+    try:
+        number = float(value)
+    except ValueError:
+        return DEFAULT_BUDGET
+    return number if number > 0 else DEFAULT_BUDGET
+
+
+def stamp(seconds: float | None) -> str:
+    return time.strftime("%Y-%m-%d %H:%M", time.localtime(seconds)) if seconds else "never"
+
+
+class State:
+    """The files of one store's settling runs."""
+
+    def __init__(self, store: Path):
+        self.store = store
+        self.dir = ss.settle_dir(synth_run.state_dir(), store)
+
+    def status(self) -> dict:
+        return jobs.read_json(self.dir / jobs.STATUS_NAME)
+
+    def save_status(self, **changes) -> dict:
+        jobs.private_dir(self.dir)
+        data = {**self.status(), **changes}
+        jobs.write_json(self.dir / jobs.STATUS_NAME, data)
+        return data
+
+
+def run_env(store: Path) -> dict:
+    """The `mem` calls and the session: aimed at `store`; a configured memories folder is kept."""
+    env = synth_run.session_env(store)
+    if os.environ.get("MEM_MEMORIES"):
+        env["MEM_MEMORIES"] = os.environ["MEM_MEMORIES"]
+    return env
+
+
+def prune(state: State, now: float) -> None:
+    jobs.prune_runs_older(state.dir / "runs", now, KEEP_SECONDS)
+
+
+def session_cmd(
+    claude: str, work: Path, brief: str, settings: Path, max_budget: float
+) -> list[str]:
+    """One Haiku session. Tools: Read and Write/Edit inside `work` only; no Bash (a session with `Bash(mem *)` could
+    run any `mem` command and bypass the limits `mem settle apply` enforces), no web, hooks disabled by `settings`."""
+    return headless.command(
+        headless.Session(
+            claude=claude,
+            prompt=brief,
+            model="haiku",
+            settings=settings,
+            effort="medium",
+            # `//` is an absolute path
+            allowed=(f"Read(/{work}/**)", f"Write(/{work}/**)", f"Edit(/{work}/**)"),
+            disallowed=("Bash", "WebSearch", "WebFetch"),
+            max_budget=max_budget,
+        )
+    )
+
+
+def session(cmd: list[str], work: Path, env: dict, log: Path) -> dict:
+    """Runs a `session_cmd` command in `work`; the stream goes to `log`."""
+    start = time.monotonic()
+    raw = headless.run_raw(cmd, cwd=work, env=env, timeout=SESSION_TIMEOUT).stdout
+    log.write_text(raw, encoding="utf-8")
+    result = sp.parse(raw)
+    result["wall"] = time.monotonic() - start
+    return result
+
+
+def read_verdicts(path: Path) -> str | None:
+    """None when `path` holds a JSON list; else why not."""
+    if not path.is_file():
+        return "the session wrote no verdicts file"
+    try:
+        rows = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return "the verdicts file is not valid JSON"
+    return None if isinstance(rows, list) else "the verdicts file is not a JSON list"
+
+
+@dataclass
+class Outcome:
+    """What a run spent and found, filled as it goes, so an exception later still leaves what was spent."""
+
+    cost: float = 0.0
+    failures: list[str] = field(default_factory=list)
+    pairs: int = 0
+    summary: str = ""
+    log_file: Path | None = None  # None: nothing started (not due, or the check failed)
+
+
+@dataclass
+class Job:
+    """One started run: its folder, its log and its outcome."""
+
+    state: State
+    root: Path
+    out: Outcome
+    env: dict
+
+    @property
+    def work(self) -> Path:
+        return self.root / "work"
+
+    def log(self, text: str) -> None:
+        fd_log = os.open(self.root / "log.txt", os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+        with os.fdopen(fd_log, "a") as f:
+            f.write(f"{time.strftime('%H:%M:%S')} {text}\n")
+
+
+def _problem(found: subprocess.CompletedProcess[str], what: str) -> str:
+    return f"{what} failed: {(found.stderr or found.stdout).strip()[:150]}"
+
+
+def _pending_pairs(job: Job) -> list | None:
+    """The look-alike pairs `mem settle pending` found; None (a failure recorded) when it gave none."""
+    found = sp.mem(job.state.store, job.env, "settle", "pending", "--json")
+    if found.returncode:
+        job.out.failures.append(_problem(found, "mem settle pending"))
+        return None
+    try:
+        pairs = json.loads(found.stdout)
+    except ValueError:
+        pairs = None
+    if not isinstance(pairs, list):
+        job.out.failures.append("mem settle pending gave no JSON list")
+        return None
+    return pairs
+
+
+def _ask_model(job: Job, claude: str, budget: float, pairs: list) -> Path | None:
+    """The session; the verdicts file it wrote, or None (a failure recorded)."""
+    pairs_file, verdicts_file = job.work / "pairs.json", job.work / "verdicts.json"
+    pairs_file.write_text(json.dumps(pairs, ensure_ascii=False, indent=1), encoding="utf-8")
+    settings = job.root / "settings.json"
+    settings.write_text(
+        json.dumps({"disableAllHooks": True}), encoding="utf-8"
+    )  # no hook of the session may commit or start a run
+    brief = sp.brief("settle", PAIRS_FILE=str(pairs_file), VERDICTS_FILE=str(verdicts_file))
+    cmd = session_cmd(claude, job.work, brief, settings, budget)
+    done = session(cmd, job.work, job.env, job.root / "session.jsonl")
+    job.out.cost += done["cost"]
+    job.log(
+        f"session: has_result={done['has_result']} error={done['error']} cost={done['cost']:.3f} "
+        f"answer={' '.join(done['answer'].split())[:200]}"
+    )
+    if not done["has_result"]:
+        job.out.failures.append(sp.NO_COST)
+        return None
+    if done["error"]:
+        job.out.failures.append("settling session failed")
+        return None
+    why = read_verdicts(verdicts_file)
+    if why:
+        job.out.failures.append(why)
+        return None
+    return verdicts_file
+
+
+def _summary(lines: list[str]) -> str:
+    counts = {
+        word: sum(1 for ln in lines if ln.startswith(word + "\t"))
+        for word in ("applied", "refused", "failed")
+    }
+    return ", ".join(f"{n} {word}" for word, n in counts.items() if n)
+
+
+def _apply(job: Job, verdicts_file: Path) -> None:
+    applied = sp.mem(job.state.store, job.env, "settle", "apply", "--verdicts", str(verdicts_file))
+    job.log(f"apply: exit {applied.returncode}\n{applied.stdout.strip()}\n{applied.stderr.strip()}")
+    if applied.returncode:
+        job.out.failures.append(_problem(applied, "mem settle apply"))
+        return
+    lines = applied.stdout.splitlines()
+    job.out.summary = _summary(lines)
+    if any(ln.startswith("failed\t") for ln in lines):
+        job.out.failures.append("a settling was only partly done: see the log")
+
+
+def work_steps(job: Job, claude: str | None, budget: float) -> None:
+    """Pairs, the session, the apply."""
+    job.work.mkdir(mode=PRIVATE_MODE)
+    pairs = _pending_pairs(job)
+    if pairs is None:
+        return
+    job.log(f"pairs: {len(pairs)}")
+    job.out.pairs = len(pairs)
+    if not pairs:  # `pending` already judged the handles it looked at: nothing to ask a model
+        return
+    if not claude:
+        job.out.failures.append("no claude binary (--claude, CLAUDE_CODE_EXECPATH or PATH)")
+        return
+    verdicts_file = _ask_model(job, claude, budget, pairs)
+    if verdicts_file is not None:
+        _apply(job, verdicts_file)
+
+
+def due_check(store: Path, minutes: float) -> tuple[bool, str]:
+    """(due, why not or the error): `mem settle due` exits 0 when work waits, 1 when none."""
+    done = sp.mem(store, run_env(store), "settle", "due", "--minutes", str(minutes))
+    if done.returncode == 0:
+        return True, done.stdout.strip()
+    if done.returncode == 1:
+        return False, "no new memories wait, or the last apply is recent"
+    return False, f"mem settle due failed: {(done.stderr or done.stdout).strip()[:150]}"
+
+
+def _finish(state: State, out: Outcome) -> None:
+    """The end status, written while the lock is still held."""
+    finished = time.time()
+    reason = "; ".join(out.failures)
+    if out.log_file is None:  # nothing started (not due, or the check failed)
+        if out.failures:
+            state.save_status(failure={"at": finished, "reason": reason, "log": ""})
+        return
+    failure = (
+        {"failure": {"at": finished, "reason": reason, "log": str(out.log_file)}}
+        if out.failures
+        else {}
+    )
+    state.save_status(
+        state="failed" if out.failures else "ok",
+        finished=finished,
+        cost=out.cost,
+        reason=reason,
+        pairs=out.pairs,
+        summary=out.summary,
+        **failure,
+    )
+
+
+def _open_job(state: State, out: Outcome, previous: dict, now: float) -> Job:
+    """The run folder and the `running` status."""
+    stale = jobs.failure(
+        {
+            "state": previous.get("state"),
+            "started": previous.get("started"),
+            "log": previous.get("log"),
+        },
+        now,
+    )
+    root = state.dir / "runs" / f"{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
+    jobs.private_dir(root)
+    prune(state, now)
+    out.log_file = root / "log.txt"
+    extra = {"failure": stale} if stale and not previous.get("failure") else {}
+    state.save_status(
+        state="running",
+        started=now,
+        finished=None,
+        cost=0.0,
+        reason="",
+        log=str(out.log_file),
+        **extra,
+    )
+    return Job(state, root, out, run_env(state.store))
+
+
+def _attempt(
+    state: State, claude: str | None, budget_arg: str | float | None, minutes: float, out: Outcome
+) -> None:
+    now = time.time()
+    previous = state.status()
+    # a failed run is not retried at once: its pairs stay pending, and every write would start it again
+    if (
+        previous.get("state") == "failed"
+        and now - float(previous.get("finished") or 0) <= max(minutes, FAILURE_WAIT) * 60
+    ):
+        return
+    budget = budget_of(budget_arg)
+    due, why = due_check(state.store, minutes)
+    if not due:
+        if why.startswith("mem settle due failed"):
+            out.failures.append(why)
+            _finish(state, out)
+        return
+    job = _open_job(state, out, previous, now)
+    job.log(f"start: budget {budget:.2f}")
+    work_steps(job, claude, budget)
+    if out.cost > budget + 1e-9:
+        out.failures.append(f"cost {out.cost:.2f} USD is over the budget {budget:.2f}")
+    _finish(state, out)
+
+
+def cmd_run(
+    store: Path, claude: str | None, budget_arg: str | float | None, minutes_arg: str | float | None
+) -> int:
+    state = State(store)
+    fd = jobs.take_run_lock(state.dir)  # the first action: a busy lock means a run is going
+    if fd is None:
+        return 0
+    minutes = ss.minutes_of(minutes_arg)
+    out = Outcome()
+    try:
+        _attempt(state, claude, budget_arg, minutes, out)
+    except (
+        Exception
+    ) as exc:  # anything after the lock ends as a `failed` status; a killed run is the stale case
+        logger.debug("settling run failed", exc_info=True)
+        out.failures.append(f"{type(exc).__name__}: {exc}"[:150])
+        try:
+            _finish(state, out)
+        except Exception:
+            logger.debug("the end status could not be written", exc_info=True)
+    finally:
+        os.close(fd)
+    return 0
+
+
+def cmd_dry_run(store: Path, claude: str | None, budget_arg, minutes_arg) -> int:
+    minutes = ss.minutes_of(minutes_arg)
+    state = State(store)
+    previous = state.status()
+    due, why = due_check(store, minutes)
+    reason = (
+        "a settling run holds the lock"
+        if _lock_held(state)
+        else "the last run failed less than the minutes ago"
+        if previous.get("state") == "failed"
+        and time.time() - float(previous.get("finished") or 0) <= minutes * 60
+        else ""
+        if due
+        else why
+    )
+    print(
+        f"minutes: {minutes}; budget: {budget_of(budget_arg):.2f} USD; claude: {claude or '(none)'}; "
+        + (f"would not start: {reason}" if reason else "would start")
+    )
+    return 0
+
+
+def _lock_held(state: State) -> bool:
+    """Reads only: no folder is made; any doubt answers False."""
+    return jobs.lock_held(state.dir)
+
+
+def cmd_status(store: Path) -> int:
+    data = State(store).status()
+    if not data:
+        print("no settling run yet")
+        return 0
+    now = time.time()
+    shown = data.get("state", "?")
+    if shown == "running" and now - float(data.get("started") or 0) > jobs.STALE_RUNNING_SECONDS:
+        shown = "failed (a run that did not finish)"
+    print(
+        f"last run: {stamp(data.get('started'))}, state {shown}, cost {float(data.get('cost') or 0):.3f} USD, "
+        f"pairs {data.get('pairs', 0)}"
+    )
+    if data.get("summary"):
+        print(f"applied: {data['summary']}")
+    if data.get("reason"):
+        print(f"reason: {data['reason']}")
+    print(f"log: {data.get('log') or '(none)'}")
+    print(
+        f"unacknowledged failure: {'yes (mem-settle ack clears it)' if jobs.failure(data, now) else 'no'}"
+    )
+    return 0
+
+
+def cmd_ack(store: Path) -> int:
+    state = State(store)
+    data = state.status()
+    if data:
+        changes: dict = {"failure": None}
+        if jobs.failure({"state": data.get("state"), "started": data.get("started")}, time.time()):
+            changes["state"] = "failed"  # a stale `running` is closed
+        state.save_status(**changes)
+    print("acknowledged: the failure line is cleared")
+    return 0
+
+
+def _check_tools(tmp: Path) -> None:
+    cmd = session_cmd("claude", tmp / "w", "brief", tmp / "s.json", 0.25)
+    allowed = cmd[cmd.index("--allowedTools") + 1 : cmd.index("--disallowedTools")]
+    assert (
+        not any(t.startswith("Bash") for t in allowed)
+        and "Bash" in cmd[cmd.index("--disallowedTools") + 1 :]
+    )
+    assert all(t.startswith(("Read(", "Write(", "Edit(")) and f"{tmp}/w" in t for t in allowed), (
+        allowed
+    )
+
+
+def self_check() -> int:
+    """No model: the lock, the folder mode, the options, a run with nothing to settle (it starts no session) and the
+    session's tool list (no Bash)."""
+    assert (
+        budget_of("x") == DEFAULT_BUDGET
+        and math.isclose(budget_of("0.6"), 0.6)
+        and budget_of("0") == DEFAULT_BUDGET
+    )
+    with tempfile.TemporaryDirectory(prefix="mem-settle-check-") as tmp_name:
+        tmp = Path(tmp_name)
+        for name, folder in (
+            ("MEM_DATA", "data"),
+            ("XDG_DATA_HOME", "share"),
+            ("MEM_PROJECT", "project"),
+            ("XDG_CONFIG_HOME", "cfg"),
+        ):
+            os.environ[name] = str(tmp / folder)
+        os.environ.pop("MEM_MEMORIES", None)
+        store = tmp / "store"
+        init = subprocess.run(
+            [str(sp.MEM), "init", str(store)], capture_output=True, text=True, check=False
+        )
+        assert init.returncode == 0, init.stderr
+        state = State(store)
+        held = jobs.take_run_lock(state.dir)
+        assert held is not None and jobs.take_run_lock(state.dir) is None
+        assert cmd_run(store, "/nonexistent", None, 0) == 0 and not state.status().get("state"), (
+            "ran while locked"
+        )
+        os.close(held)
+        assert (state.dir.stat().st_mode & 0o777) == PRIVATE_MODE, oct(state.dir.stat().st_mode)
+        assert cmd_run(store, "/nonexistent", None, 0) == 0 and not state.status().get("state"), (
+            "ran with nothing new"
+        )
+        (store / "memories").mkdir(exist_ok=True)
+        found = sp.mem(store, dict(os.environ), "settle", "log")
+        assert found.returncode == 0, found.stderr
+        _check_tools(tmp)
+    print("self-check passed")
+    return 0
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n", 1)[0])
+    parser.add_argument("command", nargs="?", choices=["run", "status", "ack"])
+    parser.add_argument(
+        "--store", type=Path, help="default: the store `mem` resolves (MEM_STORE, else the default)"
+    )
+    parser.add_argument(
+        "--claude", default=os.environ.get("CLAUDE_CODE_EXECPATH") or shutil.which("claude")
+    )
+    parser.add_argument("--budget", help=f"USD per run (default {DEFAULT_BUDGET})")
+    parser.add_argument(
+        "--minutes",
+        help=f"a run starts only when the last apply ended more than this long ago "
+        f"(default {ss.DEFAULT_MINUTES:.0f}; 0 at the end of a session)",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="say whether `run` would start; change nothing"
+    )
+    parser.add_argument(
+        "--self-check",
+        action="store_true",
+        help="no model: prove the lock, the gates and the tool list",
+    )
+    return parser
+
+
+def _requested_store(args: argparse.Namespace) -> Path | None:
+    return args.store.expanduser().resolve() if args.store else synth_run.default_store()
+
+
+def _no_store(command: str, store: Path | None) -> int:
+    if command != "run":  # run is silent: it starts from a hook
+        print(f"mem-settle: no store at {store}", file=sys.stderr)
+    return 0 if command == "run" else 2
+
+
+def _run(store: Path, args: argparse.Namespace) -> int:
+    if args.dry_run:
+        return cmd_dry_run(store, args.claude, args.budget, args.minutes)
+    for name in SESSION_VARS:  # left over from the session that started this process
+        os.environ.pop(name, None)
+    return cmd_run(store, args.claude, args.budget, args.minutes)
+
+
+def main() -> int:
+    parser = _parser()
+    args = parser.parse_args()
+    if args.self_check:
+        return self_check()
+    if not args.command:
+        parser.error("a command is required")
+    store = _requested_store(args)
+    if store is None or not (store / "mem-store.yaml").is_file():
+        return _no_store(args.command, store)
+    if args.command == "run":
+        return _run(store, args)
+    return {"status": lambda: cmd_status(store), "ack": lambda: cmd_ack(store)}[args.command]()

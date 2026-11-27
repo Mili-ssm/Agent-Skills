@@ -1,6 +1,8 @@
 # Memory plugin: `memory-status-checker` subagent
 
-Status: released (memory 0.13.0; triggers reworded in 0.14.0, ADR 0030 Review 2026-11-25), unmeasured until its trigger cases run · Branch `feat/memory-status-checker` (merged) · Owner request 2026-11-25, design chosen by the model, owner reviews afterwards.
+Status: done · merged in #187, 2026-11-25
+
+Released in memory 0.13.0 (triggers reworded in 0.14.0, ADR 0030 Review 2026-11-25), unmeasured until its trigger cases run · Branch `feat/memory-status-checker` (merged) · Owner request 2026-11-25, design chosen by the model, owner reviews afterwards.
 
 ## Goal
 

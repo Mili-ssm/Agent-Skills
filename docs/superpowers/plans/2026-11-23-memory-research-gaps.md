@@ -1,5 +1,7 @@
 # Memory plugin: commit gate, re-read reminder, research-wave skill — Implementation Plan
 
+Status: done · merged in #178, 2026-11-23
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the start fast enough and the tests trustworthy, then close gaps G1 to G4 of the note-repository parity study: hold notes that fail `mem check` back from history commits, tell the agent when notes are due for re-reading, and give the plugin a research-wave skill with note-writing rules.

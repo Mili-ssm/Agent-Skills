@@ -1,0 +1,15 @@
+"""The `mem` command handlers (A5, ADR 0028), a top layer like `entry`: it may import every package and only `mem` imports it.
+
+Modules:
+
+`common`: helpers shared by the handlers and the dispatch (store resolution, logs, note resolution, guards, `UsageError`)
+`admin`: `terms`, `projects`, `init`, `history`
+`read`: `check`, `index`, `find`, `topics`, `show`, `search`, `passages`, `related`, `search-eval`, `stats`, `review`
+`edit`: `new`, `note` (edit and marks), `rename`, `unify`; `new_note` and the attach-to-section helpers
+`sources`: `fetch-sources` and `import`; download, HTML and PDF text extraction, and the store import
+`memory`: `remember`, `confirm` (and `observe`), `refute`, `forget`, `triage`, `supersede`, `merge`, `distinct`, `restore`, `promote`, `memories`, `rules`, `memory` (edit) and `settle`
+`curate`: `curate`, and the session-start curation decisions (passes, marks, pair and note queues)
+`hooks`: `session-index`, `compact-log` and `signal`, with the session start text and the logic only they use
+`synthesis`: `synthesis` (list, new, add, append, edit, attach, rename, remove, detach, topics, refs) and `project-synthesis`, with the logic only they use
+`integrate`: `synthesis integrate`, which joins knowledge notes to parts of a synthesis (registered by `mem`, not by the synthesis dispatch, because it imports `synthesis`)
+"""

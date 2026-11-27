@@ -1,5 +1,7 @@
 # Public release and monorepo option B
 
+Status: done · merged in #141, 2026-11-19
+
 Goal: the plugins of the `mili-ssm` marketplace become public (fewer than ten users, owner 2026-11-19): MIT license, one SemVer version and changelog per plugin, released when changes pile up, and the paths installed users rely on recorded as a contract (architect review 2026-11-19, option B). Option C (self-contained per-plugin packages) is assessed, not executed.
 
 Owner decisions (2026-11-19): license MIT; one version per plugin, not one for the repo; versions are cut when several changes accumulate, not per commit; work integrates on a `dev` branch and `main` holds only releases (a release is a PR from `dev` to `main`); `.memory/` goes in `.gitignore`; option B step by step.

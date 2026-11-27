@@ -1,5 +1,7 @@
 # Memory Loaded Rules Implementation Plan
 
+Status: done · merged in #161, 2026-11-22 · unticked boxes are not open work
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A few established lessons load by themselves at session start as short rules, each in a short form of at most 120 characters, followed by one line that counts the recommendations that did not fit and names their topics; any one rule can be turned off without losing the lesson.

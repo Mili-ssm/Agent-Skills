@@ -1,5 +1,7 @@
 # Rules block grouped by topic Implementation Plan
 
+Status: done · merged in #171, 2026-11-23
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** The lessons that load at session start can be printed under their topic; the choice of lessons and their texts do not change, and the flat block stays the default until a measure says the grouped one is followed as well.

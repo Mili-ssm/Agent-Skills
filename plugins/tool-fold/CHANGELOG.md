@@ -4,6 +4,12 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-27
+
+### Changed
+
+- Internal cleanup: an unused export of the agents hook was removed. No visible change.
+
 ## [0.1.0] - 2026-11-19
 
 ### Added

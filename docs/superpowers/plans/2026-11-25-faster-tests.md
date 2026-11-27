@@ -1,6 +1,8 @@
 # Faster test runs, cleaning each touched test file
 
-Status: done (2026-11-25), PR #193 · Branch: `perf/faster-tests` (was stacked on #192, merged)
+Status: done · merged in #193, 2026-11-25
+
+Branch: `perf/faster-tests` (was stacked on #192, merged)
 
 ## Goal and rules
 

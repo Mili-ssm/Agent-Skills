@@ -1,8 +1,10 @@
 # Offload tables from a session start hook: Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task, with the Plan loop of the owner's routing rules (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax for tracking.
+Status: done · merged in #196, 2026-11-26
 
-Status: implemented, awaiting review and pull request · Branch: `feat/offload-policy-hook` · Base: `dev`; rebase onto `dev` after `fix/prompt-review-2026-11-26` merges, before Task 5, because that branch changes the policy text and holds its latest measurement · Date: 2026-11-26 · Backlog item 4d
+Released on 2026-11-26 in `agent-skills` 1.2.0 and `memory` 0.15.0 · Branch: `feat/offload-policy-hook` · Base: `dev`; rebase onto `dev` after `fix/prompt-review-2026-11-26` merges, before Task 5, because that branch changes the policy text and holds its latest measurement · Date: 2026-11-26 · Backlog item 4d
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task, with the Plan loop of the owner's routing rules (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A user who installs `agent-skills` or `memory` gets that plugin's offload table at session start with nothing to paste or keep up to date; a plugin option turns it off for users who keep the table in their own instructions file.
 

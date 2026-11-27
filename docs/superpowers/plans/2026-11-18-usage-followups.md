@@ -1,5 +1,7 @@
 # Follow-ups of the weekly usage study (2026-11-18)
 
+Status: in progress · 3g (browser driver for the ui-verifier case) and 6 (memory kill read, about 2026-12-01) are still open
+
 Source: the local, unpublished study `.local/studies/2026-11-18-weekly-usage.md` (suggestions G1 to G7). The owner approved this order on 2026-11-18. Hand-written plan: each task is an outcome with its check.
 
 - [x] **1. Record the study.** The local, unpublished study `.local/studies/2026-11-18-weekly-usage.md` holds observations, suspicions and suggestions. Check: `python3 scripts/validate.py`.

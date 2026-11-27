@@ -1,6 +1,8 @@
 # Platform parity study (Claude Code, Codex, Copilot, Google)
 
-Status: in progress · Date: 2026-11-23
+Status: done · merged in #178, 2026-11-23
+
+Date: 2026-11-23
 
 Goal: document which Claude Code plugin features (skills, agents, commands, hooks, MCP, settings, UI) each other coding-agent CLI supports, so a later port knows what carries over, what is lost and how to work around it. Documentation only: no port is built here.
 
