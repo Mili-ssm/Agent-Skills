@@ -4,6 +4,8 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+## [0.16.1] - 2026-11-27
+
 ### Fixed
 
 - `mem-integrate run` now adds new sentences to syntheses. In 0.16.0 its check session rejected almost every note meant to add a sentence ("the part does not mention this yet"), so a run placed only references on existing sentences. Measured on 2026-11-27: on fixed test rows, 99 of 102 right additions accepted and none of 120 wrong rows (not on the topic, wrong part, contradicting the part, wrong sentence), against 24 of 136 before; the seeded trial placed 8 new sentences, all backed by their notes (checked by a second model), with no wrong placement; on a copy of a real store, none of 32 deliberately wrong placements was accepted in two runs (a third run could not read its oversized input). Kill criteria: [plan](https://github.com/Mili-ssm/Agent-Skills/blob/main/docs/superpowers/plans/2026-11-27-memory-integrate-check-append.md).

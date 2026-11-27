@@ -1,6 +1,6 @@
 # mem-integrate: the check session rejects every append
 
-Status: built and measured; release memory 0.16.1 pending · Date: 2026-11-27 · Branch: fix/memory-integrate-check-append
+Status: done, released in memory 0.16.1 (PR #223) · Date: 2026-11-27 · Branch: fix/memory-integrate-check-append
 
 Owner ruling 2026-11-27: fix and measure, then release memory 0.16.1.
 
@@ -15,7 +15,7 @@ The stage 3 trial ([seamless plan § Results, "Stage 3 trial"](2026-11-17-memory
 - [x] 3. Brief fix in `check-brief.md` (`part_text` row only). Check: the probe on the new brief, 2 runs; rule below; `mem-integrate --self-check` passes.
 - [x] 4. Trial rerun `run_trial.py --budget 0.30` on the new brief, the Sonnet audit of the appended sentences, `run_trial.py verdict`. Check: verdict `pass`, recorded in the seamless plan § Results.
 - [x] 4b. Held-out run on a copy of the real store (`cp -a` to the scratchpad; `MEM_MEMORIES` unset; `mem-integrate run --store COPY --budget 0.10` from the repo engine). Every applied append gets a Sonnet audit for right part and backing. Check: no applied append judged wrong.
-- [ ] 5. Docs and release: memory CHANGELOG `[Unreleased]` line (what changed, how it was measured: probe, trial, real copy; kill criteria linked), README integrate heading, the `entry/integrate.py` docstring if it says "not measured", seamless plan and backlog; PR to `dev`, review, release memory 0.16.1, update the installed plugin.
+- [x] 5. Docs and release: memory CHANGELOG `[Unreleased]` line (what changed, how it was measured: probe, trial, real copy; kill criteria linked), README integrate heading, the `entry/integrate.py` docstring if it says "not measured", seamless plan and backlog; PR to `dev`, review, release memory 0.16.1, update the installed plugin.
 
 ## Rule, fixed before the probe runs on the new brief
 
