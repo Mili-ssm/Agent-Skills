@@ -4,6 +4,8 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-27
+
 ### Added
 
 - Workflow `plan-task` (pilot, Claude Code only, unmeasured): runs one plan task through `implementer`, `skeptical-reviewer` on its commits and one verified fix round, and returns only the final result to the main conversation. Start it yourself with the task file and its checks; adoption waits for the pilot comparison (ADR 0039).
