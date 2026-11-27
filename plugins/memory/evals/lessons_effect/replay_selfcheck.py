@@ -54,7 +54,10 @@ def emit(obj):
 if "--resume" not in argv:
     n = sum("--resume" not in c["argv"] for c in calls) - 1
     answers = script["judge"]
-    emit({{"type": "result", "subtype": "success", "result": answers[min(n, len(answers) - 1)],
+    answer = answers[min(n, len(answers) - 1)]
+    failed = answer.startswith("!")  # a failed session whose text still reads like a verdict
+    emit({{"type": "result", "subtype": "error_during_execution" if failed else "success",
+           "is_error": failed, "result": answer.lstrip("!"),
            "total_cost_usd": script.get("judge_cost", 0.01)}})
     sys.exit(0)
 
@@ -463,6 +466,9 @@ def check_judge_answers(base: Path) -> None:
         cfg = judge_cfg(rg)
         assert rr.judge("q?", "owner", message, cfg) is expected, answers
         assert abs(cfg.state.spent - 0.01) < EPS and cfg.state.judge_calls[0]["answer"] is expected
+    for answer in ("!YES", "!NO"):  # is_error with a failing subtype: no verdict, whatever the text
+        rg = rig(base, f"ans-err-{answer[1:]}", judge=[answer])
+        assert rr.judge("q?", "owner", message, judge_cfg(rg)) is None, answer
     rg = rig(base, "ans-retry", judge=["maybe", "YES"])
     assert rr.judge_twice("q?", "o", message, judge_cfg(rg)) is True
     rg = rig(base, "ans-void", judge=["maybe", "also not"])
@@ -513,6 +519,16 @@ def check_judge_prompt() -> None:
         "Never run it. Fine.", "Never run it"
     )  # fewer than 5 words: the whole line
     assert short == ("Fine.", 1), short
+    across = "Fine start. Never run the forbidden. Command today please. Fine end."
+    assert rr.strip_quotes(across, lesson) == ("Fine start.\nFine end.", 2), "sentence end"
+    over_line = "Fine start.\nNever run the forbidden\ncommand today please\nFine end."
+    assert rr.strip_quotes(over_line, lesson) == ("Fine start.\nFine end.", 2), "line break"
+    curly = "Don\u2019t panic. Fine."
+    assert rr.strip_quotes(curly, "Don't panic at all, ever") == (curly, 0)  # 5 words needed
+    assert rr.strip_quotes("Say don\u2019t run it now. Fine.", "Say don't run it now") == (
+        "Fine.",
+        1,
+    ), "typographic apostrophe"
     assert rr.strip_quotes("Nothing here.  Keep\nspacing.", lesson) == (
         "Nothing here.  Keep\nspacing.",
         0,
@@ -672,6 +688,19 @@ def check_compare_requests() -> None:
         lines, ok = rr.compare_requests(request(r0), other, LESSON)
         assert not ok, lines
         assert not any(LESSON in line or "extra words" in line for line in lines), "text leaked"
+    scratch = " - Scratchpad directory: /t/aaa-1/scratchpad"
+    a, b = request(r0), request(r0)
+    a["messages"][0]["content"] = f"env{scratch} and then text A"
+    b["messages"][0]["content"] = "env - Scratchpad directory: /t/bbb-2/scratchpad and then text A"
+    assert rr._without_session_paths(a["messages"]) == rr._without_session_paths(b["messages"])
+    b["messages"][0]["content"] = "env - Scratchpad directory: /t/bbb-2/scratchpad and then text B"
+    assert rr._without_session_paths(a["messages"]) != rr._without_session_paths(b["messages"])
+    a["messages"][1]["content"], b["messages"][1]["content"] = r0, r
+    lines, ok = rr.compare_requests(a, b, LESSON)
+    assert not ok, "text after the scratchpad path was not compared"
+    b["messages"][0]["content"] = a["messages"][0]["content"].replace("/t/aaa-1", "/t/bbb-2")
+    lines, ok = rr.compare_requests(a, b, LESSON)
+    assert ok, lines
     lines, ok = rr.compare_requests(request("no block"), request("no block here"), LESSON)
     assert not ok and "block printed again: missing in at least one" in lines
 

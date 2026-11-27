@@ -325,7 +325,8 @@ def _renamer(
 ) -> Callable[[str], str]:
     """A one-pass rewrite of a transcript line: old working folders (at a path boundary) to `work`, old ids to the new one.
 
-    A folder that is a prefix of a longer name (`/a/proj` in `/a/proj-2`) or the tail of another path is left alone."""
+    A folder that is a prefix of a longer name (`/a/proj` in `/a/proj-2`, `/a/proj.bak`) or the tail of another path is
+    left alone; a JSON escape of a line break or tab before the folder is a boundary, and so is a final `.` ending a sentence."""
     escaped = json.dumps(str(work))[
         1:-1
     ]  # always valid JSON; a raw-UTF-8 old folder gets the raw form
@@ -334,7 +335,7 @@ def _renamer(
         raw: (escaped if raw.isascii() else raw_new) for cwd in old_cwds for raw in _json_forms(cwd)
     }
     path_re = re.compile(
-        rf"(?<![\w.\-])(?:{'|'.join(map(re.escape, sorted(paths, key=len, reverse=True)))})(?![\w.\-]|\\u)"
+        rf"(?:(?<![\w.\-])|(?<=\\[ntr]))(?:{'|'.join(map(re.escape, sorted(paths, key=len, reverse=True)))})(?![\w\-]|\.[\w.\-]|\\u)"
         if paths
         else r"(?!)"
     )
@@ -793,7 +794,7 @@ def check_rewrite(base: Path, projects: Path) -> None:
     old, uni = "/syn/proj", "/syn/caf\u00e9"
     sid = "00000000-0000-4000-8000-0000000000aa"
     notes = {
-        old: f"{old}-2/src {old}/src {old}. /other{old} {old}",
+        old: f"{old}-2/src {old}/src {old}. /other{old} {old}\n{old}/x\t{old}\r{old} see {old}.bak {old}.",
         uni: f"{uni}/a {uni}s {sid} {sid}0",
     }
     entries = [
@@ -801,8 +802,8 @@ def check_rewrite(base: Path, projects: Path) -> None:
         for cwd, note in notes.items()
     ]
     point = synthetic_point(base, [*entries, _assistant("m3", {"type": "text", "text": "t"})])
-    work = base / "rw work"
-    for ascii_json in (False, True):  # the folder as raw UTF-8, then as a \u escape
+    for ascii_json, work in ((False, base / "rw work"), (True, base / "rw w\u00f6rk")):
+        # the old folder as raw UTF-8, then as a \u escape; the new one plain, then raw UTF-8
         lines = [json.dumps(e, ensure_ascii=ascii_json) for e in [*entries, _assistant("m3", {})]]
         point.transcript.write_text("\n".join(lines) + "\n", encoding="utf-8")
         copy = make_copy(point, work, projects)
@@ -811,7 +812,9 @@ def check_rewrite(base: Path, projects: Path) -> None:
         finally:
             cleanup(copy)
         assert [e["cwd"] for e in kept] == [str(work)] * 2, kept
-        assert kept[0]["note"] == f"{old}-2/src {work}/src {old}. /other{old} {work}", kept[0]
+        assert kept[0]["note"] == (
+            f"{old}-2/src {work}/src {work}. /other{old} {work}\n{work}/x\t{work}\r{work} see {old}.bak {work}."
+        ), kept[0]
         assert kept[1]["note"] == f"{work}/a {uni}s {copy.session_id} {sid}0", kept[1]
 
 
@@ -902,6 +905,7 @@ def check_files(base: Path) -> None:
     path = arm_settings(base, "R", "block text\n")
     settings = json.loads(path.read_text(encoding="utf-8"))
     start = settings["hooks"]["SessionStart"][0]
+    assert {"resume", "fork"} <= set(start["matcher"].split("|")), start["matcher"]
     assert (
         start["matcher"] == RESUME_MATCHER
         and (base / "block-R.txt").read_text(encoding="utf-8") == "block text\n"

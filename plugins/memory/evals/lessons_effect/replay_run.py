@@ -339,27 +339,42 @@ class Judge:
     removed: int = 0  # sentences or lines taken out of the last judged message
 
 
-def _words(text: str) -> list[str]:
-    return re.findall(r"[\w'-]+", text.lower())
+def _words(text: str) -> list[tuple[str, int, int]]:
+    """(word, start, end) of every word: lowercased, the typographic apostrophe read as the plain one."""
+    return [
+        (m.group().lower().replace("\u2019", "'"), m.start(), m.end())
+        for m in re.finditer(r"[\w'\u2019-]+", text)
+    ]
 
 
-def quotes_lesson(sentence: str, lesson_line: str) -> bool:
-    """True when the sentence holds a run of 5 consecutive words of the lesson line (all of them, when the
-    line is shorter)."""
-    lesson = _words(lesson_line)
+def _quoted_spans(text: str, lesson_line: str) -> list[tuple[int, int]]:
+    """The character spans of every run of 5 consecutive words of the lesson line (all of them, when the line is
+    shorter), found over the whole text, so a run may cross a sentence end or a line break."""
+    lesson = [w for w, _, _ in _words(lesson_line)]
     size = min(QUOTE_WORDS, len(lesson))
-    words = _words(sentence)
+    words = _words(text)
     runs = {tuple(lesson[i : i + size]) for i in range(len(lesson) - size + 1)}
-    return size > 0 and any(
-        tuple(words[i : i + size]) in runs for i in range(len(words) - size + 1)
-    )
+    return [
+        (words[i][1], words[i + size - 1][2])
+        for i in range(len(words) - size + 1)
+        if size > 0 and tuple(w for w, _, _ in words[i : i + size]) in runs
+    ]
+
+
+def _segments(text: str) -> list[tuple[str, int, int]]:
+    """(sentence or line, start, end): the text cut after a sentence end and at line breaks."""
+    cuts = [(m.start(), m.end()) for m in re.finditer(r"(?<=[.!?])\s+|\n+", text)]
+    starts = [0, *(end for _, end in cuts)]
+    ends = [*(start for start, _ in cuts), len(text)]
+    return [(text[a:b], a, b) for a, b in zip(starts, ends, strict=True) if b > a]
 
 
 def strip_quotes(text: str, lesson_line: str) -> tuple[str, int]:
-    """(the text without every sentence or line that quotes the lesson, how many were removed)."""
-    sentences = [s for s in re.split(r"(?<=[.!?])\s+|\n+", text) if s]
-    kept = [s for s in sentences if not quotes_lesson(s, lesson_line)]
-    removed = len(sentences) - len(kept)
+    """(the text without every sentence or line that holds any part of a quote of the lesson, how many were removed)."""
+    spans = _quoted_spans(text, lesson_line)
+    segments = _segments(text)
+    kept = [seg for seg, a, b in segments if not any(start < b and a < end for start, end in spans)]
+    removed = len(segments) - len(kept)
     return ("\n".join(kept), removed) if removed else (text, 0)
 
 
@@ -458,7 +473,7 @@ def _judge_session(cfg: Config, prompt: str) -> dict[str, Any]:
 
 
 def judge(question: str, owner_turn: str, message: Message, cfg: Judge) -> bool | None:
-    """One judge session: True for YES, False for NO, None when the first line is neither."""
+    """One judge session: True for YES, False for NO, None when the first line is neither or the session failed."""
     reserve(cfg.cfg, cfg.state, JUDGE_CAP_USD)
     clean, cfg.removed = scrub_message(message, cfg.point.lesson_line)
     result = _judge_session(cfg.cfg, judge_prompt(question, owner_turn, clean))
@@ -467,7 +482,8 @@ def judge(question: str, owner_turn: str, message: Message, cfg: Judge) -> bool 
     reply = result.get("result")
     lines = reply.strip().splitlines() if isinstance(reply, str) else []
     first = lines[0].strip() if lines else ""
-    answer = {"YES": True, "NO": False}.get(first)
+    failed = result.get("is_error") is True or result.get("subtype") != "success"
+    answer = None if failed else {"YES": True, "NO": False}.get(first)
     cfg.state.judge_calls.append({
         "point": cfg.point.name,
         "answer": answer,
@@ -680,7 +696,7 @@ def _kill_rule(state: State, gated: bool) -> None:
     if len(state.gates) == KILL_GATES and not any(state.gates):
         raise Stop(
             EXIT_NO_REPEAT,
-            f"the gates of the first {KILL_GATES} points all gate out: no failure repeats",
+            f"the first {KILL_GATES} scored gates all gate out: no failure repeats",
         )
 
 
@@ -977,12 +993,13 @@ def message_difference(a: str, b: str, lesson_line: str) -> tuple[str, bool]:
 
 
 # The environment text names a scratchpad folder that holds the session's own id: different in every session.
-_SESSION_PATH = re.compile(r"( - Scratchpad directory: )[^\\\"]*")
+# The path ends at whitespace, a backslash (a JSON escape) or a quote: the text after it is compared.
+_SCRATCHPAD_PATH = re.compile(r"( - Scratchpad directory: )[^\s\\\"]*")
 
 
 def _without_session_paths(messages: Any) -> str:
     """The messages as one JSON text, with the per-session scratchpad path blanked."""
-    return _SESSION_PATH.sub(r"\1<session>", json.dumps(messages))
+    return _SCRATCHPAD_PATH.sub(r"\1<session>", json.dumps(messages))
 
 
 def compare_requests(
