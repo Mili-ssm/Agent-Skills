@@ -12,7 +12,19 @@ import os
 import sys
 from typing import TYPE_CHECKING, Any
 
-from commands import admin, common, curate, edit, hooks, integrate, memory, read, sources, synthesis
+from commands import (
+    admin,
+    common,
+    curate,
+    edit,
+    hooks,
+    integrate,
+    memory,
+    read,
+    sources,
+    split,
+    synthesis,
+)
 from commands.diagnostics import add_parser as _parser_add_diagnostics
 from commands.install import add_parser as _parser_add_install
 from core import config, safe_io
@@ -1102,43 +1114,16 @@ def _parser_synthesis_write(synthesis_sub: Any) -> None:
     syn_edit.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
 
 
-def _parser_synthesis_sections(synthesis_sub: Any) -> None:
-    syn_append = synthesis_sub.add_parser(
-        "append", help="add text at the end of a section, before its Sources line"
-    )
-    syn_append.add_argument("target", metavar="s:HANDLE#SECTION")
-    syn_append.add_argument(
-        "--body-file", required=True, metavar="PATH", help="the text (or - for standard input)"
-    )
-    syn_attach = synthesis_sub.add_parser(
-        "attach", help="make a knowledge note the short recall of a section"
-    )
-    syn_attach.add_argument("note", metavar="NOTE")
-    syn_attach.add_argument("target", metavar="s:HANDLE#SECTION")
-    syn_rename = synthesis_sub.add_parser(
-        "rename", help="rename a section's heading; its notes follow"
-    )
-    syn_rename.add_argument("target", metavar="s:HANDLE#SECTION")
-    syn_rename.add_argument("heading", metavar="NEW_HEADING")
-    syn_remove = synthesis_sub.add_parser(
-        "remove", help="take a section out; its notes lose part_of"
-    )
-    syn_remove.add_argument("target", metavar="s:HANDLE#SECTION")
-    syn_detach = synthesis_sub.add_parser("detach", help="remove a note's part_of")
-    syn_detach.add_argument("note", metavar="NOTE")
-    syn_append.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
-    syn_rename.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
-
-
 def _parser_add_synthesis(sub: Any) -> None:
     synthesis_parser = sub.add_parser(
         "synthesis", help="create and extend syntheses, the long documents behind notes"
     )
     synthesis_sub = synthesis_parser.add_subparsers(dest="synthesis_command", required=True)
     _parser_synthesis_write(synthesis_sub)
-    _parser_synthesis_sections(synthesis_sub)
+    synthesis.parser_sections(synthesis_sub, _OWNER_APPROVED)
     synthesis.parser_links(synthesis_sub)
     integrate.register(synthesis_sub)
+    split.register(synthesis_sub)
     synthesis_parser.set_defaults(func=synthesis.cmd_synthesis)
 
 
@@ -1335,8 +1320,14 @@ def _store_refusal(args: argparse.Namespace, root: Path | None) -> str | None:
         return f"mem: the store is not a folder: {root}"
     if not root.is_dir():
         return f"mem: the store folder does not exist: {root}"
-    writes = args.command in _WRITE_COMMANDS or (
-        args.command == "synthesis" and args.synthesis_command in _SYNTHESIS_WRITES
+    writes = (
+        args.command in _WRITE_COMMANDS
+        or (args.command == "synthesis" and args.synthesis_command in _SYNTHESIS_WRITES)
+        or (
+            args.command == "synthesis"
+            and args.synthesis_command == "split"
+            and bool(args.apply or args.undo or args.recover)
+        )
     )
     if writes and not records.store_is_writable(root):
         return (

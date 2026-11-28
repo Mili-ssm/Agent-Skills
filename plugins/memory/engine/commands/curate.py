@@ -22,6 +22,7 @@ from integrate.log import log_entries
 from memories import records, rules
 from notes import fields as note_fields
 from notes import note as note_files
+from notes import split_candidates
 from syntheses import document, units
 from syntheses import project as project_syntheses
 
@@ -563,6 +564,10 @@ def _curate_notes(args: argparse.Namespace) -> int:
     ]
     out += _curate_notes_same(live)
     out += _curate_notes_crowded(live, synths, known)
+    candidates = split_candidates.find_candidates(live, synths, known)
+    if candidates:
+        out.append("synthesis split candidates")
+        out.extend(f"  s:{c.part}  {c.topic}  {len(c.notes)} notes" for c in candidates)
     if out:
         print("\n".join(out))
     return 0

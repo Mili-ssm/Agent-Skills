@@ -26,8 +26,14 @@ PACKAGES = {path.parent.name for path in ENGINE_FILES if path.name == "__init__.
 
 # The check family: pure rules and queries over a notes folder.
 PURE_CHECK_MODULES = ["notes.check", "notes.fields", "notes.links", "notes.due", "notes.search"]
-NOTE_MODULES = ["notes.note", "notes.index", *PURE_CHECK_MODULES]
-SYNTHESES_MODULES = ["syntheses.document", "syntheses.units", "syntheses.edit", "syntheses.project"]
+NOTE_MODULES = ["notes.note", "notes.index", "notes.split_candidates", *PURE_CHECK_MODULES]
+SYNTHESES_MODULES = [
+    "syntheses.document",
+    "syntheses.units",
+    "syntheses.edit",
+    "syntheses.project",
+    "syntheses.split_conservation",
+]
 
 
 def test_modules_cover_every_engine_file():
@@ -41,7 +47,9 @@ def _source(name: str) -> Path:
     return path / "__init__.py" if path.is_dir() else path.with_suffix(".py")
 
 
-@pytest.mark.parametrize("module", [*NOTE_MODULES, *SYNTHESES_MODULES, "session.notices"])
+@pytest.mark.parametrize(
+    "module", [*NOTE_MODULES, *SYNTHESES_MODULES, "session.notices", "commands.split_plan"]
+)
 def test_module_imports_without_mem(module):
     code = f"import sys, {module}; assert 'mem' not in sys.modules, sorted(sys.modules)"
     result = subprocess.run(
