@@ -84,3 +84,24 @@ def test_reads_existing_version_one_journal(tmp_path: Path):
     with journal.locked():
         journal.rollback()
     assert target.read_bytes() == b"old"
+
+
+@pytest.mark.parametrize("malformation", ["missing_original", "duplicate_path"])
+def test_rejects_malformed_v2_before_restoring(tmp_path: Path, malformation: str):
+    target = tmp_path / "note"
+    target.write_bytes(b"new")
+    journal = FileJournal(tmp_path, ".split-recovery")
+    with journal.locked():
+        journal.publish({target: (b"new", b"new")})
+        data = json.loads(journal.journal.read_text())
+        row = data["entries"][0]
+        row["original"] = "b2xk"
+        if malformation == "missing_original":
+            data["entries"].append({"path": "note2", "after": None})
+        else:
+            data["entries"].append({**row, "path": "./note", "original": None})
+        journal.journal.write_text(json.dumps(data))
+        with pytest.raises(ValueError):
+            journal.rollback()
+        assert target.read_bytes() == b"new"
+        assert journal.pending()

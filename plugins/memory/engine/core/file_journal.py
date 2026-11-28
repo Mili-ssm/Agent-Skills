@@ -122,10 +122,14 @@ class FileJournal:
             raise ValueError(f"invalid {self.label} journal")
         restore = []
         diverged = []
+        seen = set()
         for row in data["entries"]:
             if not isinstance(row, dict) or not isinstance(row.get("path"), str):
                 raise TypeError(f"invalid {self.label} entry")
             target, relative = self._target(self.root / row["path"])
+            if self.version == SPLIT_VERSION and ("original" not in row or relative in seen):
+                raise ValueError(f"invalid {self.label} entry")
+            seen.add(relative)
             original = row.get("original")
             if original is not None:
                 original = base64.b64decode(original, validate=True)
