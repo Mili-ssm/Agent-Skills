@@ -64,7 +64,7 @@ Same method as § Evidence, with a `git archive` copy of the tracked `plugins/me
 
 ## Outside the core (later, each its own decision)
 
-Decided and built since: background passes (ADR 0037), capture and commit at session end, options, agents as roles, compaction capture (ADR 0038, [parity plan](2026-11-27-memory-codex-parity.md)); the compaction handoff is not portable. The list below is the original.
+Decided and built since: background passes (ADR 0037), capture and commit at session end, options, agents as roles, compaction capture (ADR 0038, [parity plan](2026-11-27-memory-codex-parity.md)); the compaction handoff is not portable. The list below is the original. Copilot and Antigravity now have their own audit and plan: [parity plan](2026-11-28-google-copilot-parity.md).
 
 Background passes through `codex exec` (six `claude -p` call sites, `engine/core/headless.py` plus `research/` and `corroborate/`); the four agents as TOML; the compaction handoff (no channel: `PreCompact` ignores output); capture and history commit at `SessionEnd` (3 s cap: detached process); hooks for Copilot and Antigravity.
 
