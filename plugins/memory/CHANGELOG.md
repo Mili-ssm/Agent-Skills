@@ -4,6 +4,12 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+## [0.21.1] - 2026-11-28
+
+### Changed
+
+- Memory agents return the conclusion with its supporting source and flag uncertainty that affects the next action. Follow-up reports identify changes since the previous handoff. Refresh the installed Codex roles to pick up the instructions.
+
 ## [0.21.0] - 2026-11-27
 
 ### Changed
