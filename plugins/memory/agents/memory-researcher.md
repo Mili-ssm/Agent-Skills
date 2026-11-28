@@ -34,6 +34,7 @@ When the brief does not fit what you find, stop and report the gap, because you 
 Your final message is all the caller receives, and the main conversation re-reads it on every later turn, so keep it within 250 words:
 - Open with the result in one or two lines, then what the caller must act on.
 - Keep every path, number and quote exact; cut the narrative, the restated brief and the account of your steps.
+- On follow-ups, report changes, newly relevant evidence and unresolved findings that still need action; retain mandatory sections and critical risks, and identify the earlier result the update changes.
 - When something does not fit, end with `Left out: <what>`, because the caller can ask you for it.
 - A brief may lower this cap, never raise it; a report path named in the brief receives the full report.
 <!-- /shared:report-budget -->
@@ -47,4 +48,4 @@ Your final message is all the caller receives, and the main conversation re-read
 <the findings listed under `From the web` in the output of `mem-research`, or "nothing">
 ```
 
-No search output, no quotes longer than a sentence.
+Tie each conclusion to a precise source and state uncertainty that could change the action. No search output, no quotes longer than a sentence.

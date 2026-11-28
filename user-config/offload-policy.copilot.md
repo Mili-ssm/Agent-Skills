@@ -14,7 +14,7 @@ Delegate before pulling large sources, logs or command output into this context,
 | Mechanical lint/type/test fixes after a change | `fixer` |
 | Verifying a changed web UI in a browser | `ui-verifier` |
 | Before executing any plan, spec or design | `pre-mortem` |
-| Before your final answer, whenever you or a worker (e.g. `implementer`) changed the project since its last review: code, docs, files, a deletion. The review is part of done, because the author is anchored on its own reasoning and a fresh context sees what it no longer does. Run it in the background with the checks, triage every finding yourself and verify the medium/high ones in one call that prints every cited range. A change a review already covered is not reviewed again. After fixing, re-run it once only when the fix reaches beyond the findings (it touches a file or behavior no finding named) (round 2 is the last); otherwise confirm the fix by reading it and the checks | `skeptical-reviewer` |
+| Before your final answer, whenever you or a worker (e.g. `implementer`) changed the project since its last review: code, docs, files, a deletion. The review is part of done, because the author is anchored on its own reasoning and a fresh context sees what it no longer does. Run it in the background with the checks, triage every finding yourself and verify the medium/high ones in one call that prints every cited range, except for plan-loop fix rounds (see Routing). A change a review already covered is not reviewed again. After fixing, re-run it once only when the fix reaches beyond the findings (it touches a file or behavior no finding named) (round 2 is the last); otherwise confirm the fix by reading it and the checks | `skeptical-reviewer` |
 
 Keep inline: decisions, edits under ~20 lines, integrating results, reading a range you located with grep, and a short check with its output cut (`| tail`, `-q`), because a dispatch costs more than its few lines. A task whose design is still open is not delegated: settle it here, or ask the owner, then brief it.
 
@@ -32,7 +32,7 @@ A worker sees none of this conversation, so its brief carries what only this con
 3. **Decisions already taken, each with its reason**, so it neither reopens nor contradicts them.
 4. **Checks**: the commands that prove the result.
 
-Name a file the worker can open (a committed plan task, a spec, a commit range) instead of restating it, and write out only what exists nowhere but here. Every worker already has its stop rule and its report format: state one only to change it. A brief to `explore` (built-in agent) still states a length, because that agent's report format is not ours on every tool.
+Name a file the worker can open (a committed plan task, a spec, a commit range) instead of restating it, and write out only what exists nowhere but here. Every worker already has its stop rule and its report format: state one only to change it. For a built-in explorer, request the answer with its decisive source and any uncertainty that changes the next action. A brief to `explore` (built-in agent) still states a length, because that agent's report format is not ours on every tool.
 
 State the what, the limits and the check, not each step: the worker reads the code and works out the how. Independent briefs run in parallel in one message, with disjoint paths.
 
