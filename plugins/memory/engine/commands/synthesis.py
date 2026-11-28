@@ -1092,3 +1092,31 @@ def cmd_synthesis(args: argparse.Namespace) -> int:
         return code
     common.log_usage(args.root, {"cmd": "synthesis", "action": action})
     return 0
+
+
+def parser_sections(synthesis_sub: Any, owner_approved: str) -> None:
+    syn_append = synthesis_sub.add_parser(
+        "append", help="add text at the end of a section, before its Sources line"
+    )
+    syn_append.add_argument("target", metavar="s:HANDLE#SECTION")
+    syn_append.add_argument(
+        "--body-file", required=True, metavar="PATH", help="the text (or - for standard input)"
+    )
+    syn_attach = synthesis_sub.add_parser(
+        "attach", help="make a knowledge note the short recall of a section"
+    )
+    syn_attach.add_argument("note", metavar="NOTE")
+    syn_attach.add_argument("target", metavar="s:HANDLE#SECTION")
+    syn_rename = synthesis_sub.add_parser(
+        "rename", help="rename a section's heading; its notes follow"
+    )
+    syn_rename.add_argument("target", metavar="s:HANDLE#SECTION")
+    syn_rename.add_argument("heading", metavar="NEW_HEADING")
+    syn_remove = synthesis_sub.add_parser(
+        "remove", help="take a section out; its notes lose part_of"
+    )
+    syn_remove.add_argument("target", metavar="s:HANDLE#SECTION")
+    syn_detach = synthesis_sub.add_parser("detach", help="remove a note's part_of")
+    syn_detach.add_argument("note", metavar="NOTE")
+    syn_append.add_argument("--owner-approved", action="store_true", help=owner_approved)
+    syn_rename.add_argument("--owner-approved", action="store_true", help=owner_approved)
