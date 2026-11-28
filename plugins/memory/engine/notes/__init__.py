@@ -7,6 +7,7 @@
 `links`: link rules: relative links resolve, `orphan_notes`; pure
 `note`: frontmatter, YAML loaders, `Note`, topics, handles
 `search`: BM25F ranking, filters, `find`/`search`, links, mentions and the search-eval table; pure
+`split_candidates`: synthesis split candidate detection
 
 A base layer like `core`: imports stdlib, `core`, `memories`, `syntheses` and `notes` only.
 """
