@@ -41,3 +41,11 @@ def test_sign_and_percent_are_part_of_figures(tmp_path):
     assert check_conservation(tmp_path, "A change of -5.", "A change of 5.", "")
     assert check_conservation(tmp_path, "A rate of 5%.", "A rate of 5.", "")
     assert check_conservation(tmp_path, "- 5 items.", "5 items.", "") == []
+
+
+def test_unicode_minus_is_negative_and_equivalent_to_ascii(tmp_path):
+    assert check_conservation(tmp_path, "A change of \u22125%.", "A change of 5%.", "") == [
+        "missing figure: -5%"
+    ]
+    assert check_conservation(tmp_path, "A change of \u22125%.", "A change of -5%.", "") == []
+    assert check_conservation(tmp_path, "A change of -5%.", "A change of \u22125%.", "") == []

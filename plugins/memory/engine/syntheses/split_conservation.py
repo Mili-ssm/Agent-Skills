@@ -7,7 +7,7 @@ from pathlib import Path
 from syntheses.document import _resolved, _sources_line, references
 from syntheses.units import _REF_LINK, _inline, _is_ref, _parse, _relative, _remove
 
-_FIGURE = re.compile(r"(?<![\w.])[+-]?\d+(?:[.,]\d+)*%?(?!\w)")
+_FIGURE = re.compile(r"(?<![\w.])[+\u2212-]?\d+(?:[.,]\d+)*%?(?!\w)")
 _URL = re.compile(r"https?://[^\s<>]+")
 
 
@@ -33,7 +33,7 @@ def _figures(text: str) -> Counter[str]:
                 pos = end
         pieces.append(line[pos:])
         lines.append(_URL.sub("", "".join(pieces)))
-    return Counter(_FIGURE.findall("\n".join(lines)))
+    return Counter(figure.replace("\u2212", "-") for figure in _FIGURE.findall("\n".join(lines)))
 
 
 def check_conservation(root: Path, original: str, retained: str, moved: str) -> list[str]:
