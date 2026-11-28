@@ -63,9 +63,20 @@ Q9 originally proposed one fixture for two functions named `parsePlan`. Give the
 
 ## Performance measurements and module boundaries
 
-- [ ] **Medium · Q6 before A8, duplicate model calls in tool-fold.** [Agent activity](../../../plugins/tool-fold/hooks/agents.tsx) tracks requests by tool-use ID, while successful translations are cached by command text after the answer arrives. Two simultaneous IDs for identical text can therefore launch separate requests and retries. The set of IDs grows for the module lifetime. Drive two distinct IDs through a deferred fake model. Count requests, retry calls and delivered descriptions on success and failure. Check that the next call can recover after failure. Measure repeated commands in representative runs before estimating savings.
-- [ ] **Medium · A8, isolate command descriptions.** Agent lifecycle, [waiting](../../../plugins/tool-fold/hooks/waiting.tsx) and [cycle state](../../../plugins/tool-fold/hooks/cycle.ts) import each other. After Q6 covers simultaneous calls, consider extracting translation and its pending/completed state as the first independent change. Verify card updates, retries and session cleanup through the mod entry point.
-- [ ] **Measure · Sparse memory searches.** [Search dispatch](../../../plugins/memory/engine/commands/read.py) builds a shared corpus for the queries in one invocation. With fewer than three visible note hits, the deep-search hint can build another corpus. A batch can repeat this work while earlier queries yield no hint. Time identical common, sparse, missing and batched queries against a fixed store snapshot with usage logging disabled. Count corpus builds and compare result ordering, hint text, median and p95 across repeated invocations. Consider reusing work within the invocation if the overhead is material. No latency or cost reduction was measured during review.
+- [x] **Medium · Q6, duplicate model calls in tool-fold.** [Agent activity](../../../plugins/tool-fold/hooks/agents.tsx) shares one pending translation and retry per command. The fake-model [mod tests](../../../plugins/tool-fold/tests/plan.test.tsx) reproduced two calls for two IDs before the fix and verified one call, delivery to both cards, retry sharing, recovery and caching after it. Live request frequency and savings remain unmeasured.
+- [ ] **Medium · A8, isolate command descriptions.** Agent lifecycle, [waiting](../../../plugins/tool-fold/hooks/waiting.tsx) and [cycle state](../../../plugins/tool-fold/hooks/cycle.ts) import each other. Consider extracting translation and its pending/completed state first. Review the lifetime of the tool-use ID deduplication set, then verify card updates, retries and session cleanup through the mod entry point.
+- [x] **Sparse memory searches.** [Search dispatch](../../../plugins/memory/engine/commands/read.py) now builds the full corpus lazily and reuses it for hint checks in one invocation. A transient read failure remains retryable. [Regression tests](../../../plugins/memory/engine/tests/test_search_scope.py) cover misses, late hints, explicit deep search and recovery.
+
+  Paired fixture benchmark, 2026-11-28. Compared `66ee81c` and the working tree in process, alternating order across 20 measured runs per version after two warm-ups. Both ran on the same disposable fixture with 121 knowledge notes, 81 literature notes and usage logging disabled. Exit status, stdout and stderr matched exactly in all six cases. Timings exclude interpreter startup.
+
+  | Query case | Corpus builds before → after | Median / p95 ms before → after |
+  |---|---:|---:|
+  | Common | 1 → 1 | 32.47 / 36.80 → 32.01 / 32.64 |
+  | Sparse, hint | 2 → 2 | 55.77 / 61.70 → 56.42 / 62.93 |
+  | Missing | 2 → 2 | 52.60 / 62.20 → 52.67 / 67.26 |
+  | Three misses | 4 → 2 | 112.35 / 121.43 → 58.48 / 64.42 |
+  | Hint after a miss | 3 → 2 | 78.22 / 86.98 → 54.52 / 60.01 |
+  | Hint first | 2 → 2 | 53.51 / 60.25 → 54.12 / 61.04 |
 
 ## Documentation corrections and verification baseline
 

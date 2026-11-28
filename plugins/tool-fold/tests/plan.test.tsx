@@ -438,8 +438,8 @@ const LONG = '1. Leer el esquema actual — 30 min\n2. Escribir los scripts de m
 const settle = () => new Promise(resolve => setTimeout(resolve, 20))
 
 /** A planned run whose Haiku answers command prompts with `phrases` in turn ('' = unanswered); `prompts` collects every prompt. */
-function plannedEngine(on: Parameters<Parameters<typeof test>[1]>[1], phrases: string[], prompts: string[]) {
-  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
+function plannedEngine(on: Parameters<Parameters<typeof test>[1]>[1], phrases: string[], prompts: string[], gate?: Promise<void>, multipleAgents = false) {
+  on('agent.spawn', (_, e) => ({ model: 'claude-sonnet-5-5', agentId: multipleAgents && e.tool_use_id === 'tu2' ? 'a2' : 'a1' }))
   on('tool.call', () => ({ result: 'ok' }))
   on('turn.complete', () => ({ text: '' }))
   on('store.get', () => ({ value: undefined }))
@@ -447,9 +447,10 @@ function plannedEngine(on: Parameters<Parameters<typeof test>[1]>[1], phrases: s
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('ui.close', () => ({ value: undefined }))
   on('ui.log', () => ({ value: undefined }))
-  on('model.complete', (_, e) => {
+  on('model.complete', async (_, e) => {
     const prompt = String((e as { prompt?: string }).prompt)
     prompts.push(prompt)
+    if (prompt.includes('<comando>')) await gate
     const usage = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
     if (/<comando>/.test(prompt)) {
       const text = phrases.shift() ?? ''
@@ -471,6 +472,53 @@ async function start($: Parameters<Parameters<typeof test>[1]>[0], clock: { adva
   await clock.advance(10_000)
   await settle()
 }
+
+test('concurrent identical commands deliver one shared phrase to both agent cards', async ($, on) => {
+  const prompts: string[] = []
+  let release = () => {}
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const clock = plannedEngine(on, ['Lee el esquema actual'], prompts, gate, true)
+  await start($, clock)
+  await $.agent.spawn({ ...SPAWN, tool_use_id: 'tu2' })
+  await settle()
+  const command = 'cargo run --bin concurrent-success-q6'
+  await $.tool.call(bash(command, 'success1'))
+  await $.tool.call({ tool: 'Bash', command, agentId: 'a2', tool_use_id: 'success2' } as never)
+  await settle()
+  const initialCalls = commandsOf(prompts).length
+  release()
+  expect(initialCalls).toBe(1)
+  await settle()
+  const pane = await $.ui.mount({ plugin: 'tool-fold', component: 'Pane', requestId: 'agents', surface: 'vscode', props: PANE_PROPS } as never)
+  const phrases = await pane.findAll({ type: 'Text', text: /Lee el esquema actual/ })
+  expect(phrases).toHaveLength(2)
+  await pane.unmount()
+})
+
+test('concurrent identical commands share translation, retry and recovery across tool IDs', async ($, on) => {
+  const prompts: string[] = []
+  let release = () => {}
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const clock = plannedEngine(on, ['', '', 'Lee el esquema actual'], prompts, gate)
+  await start($, clock)
+  const command = 'cargo run --bin concurrent-failure-q6'
+  await $.tool.call(bash(command, 'q6a'))
+  await $.tool.call(bash(command, 'q6b'))
+  await settle()
+  const initialCalls = commandsOf(prompts).length
+  release()
+  expect(initialCalls).toBe(1)
+  await settle()
+  await clock.advance(5000)
+  await settle()
+  expect(commandsOf(prompts)).toHaveLength(2)
+  await $.tool.call(bash(command, 'q6c'))
+  await settle()
+  expect(commandsOf(prompts)).toHaveLength(3)
+  await $.tool.call(bash(command, 'q6d'))
+  await settle()
+  expect(commandsOf(prompts)).toHaveLength(3)
+})
 
 test('a failed translation is retried once ~5 s later and its phrase then hints by words', async ($, on) => {
   const prompts: string[] = []

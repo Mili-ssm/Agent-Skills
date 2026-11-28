@@ -4,6 +4,10 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+### Fixed
+
+- Concurrent agent calls for the same shell command share one description request and retry; when it succeeds, each card receives the description.
+
 ## [0.1.1] - 2026-11-27
 
 ### Changed

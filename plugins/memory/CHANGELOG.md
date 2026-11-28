@@ -4,6 +4,10 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+### Changed
+
+- Batched `mem search` queries reuse the corpus for the `--deep` hint, reducing repeated scans when several queries have few matches.
+
 ## [0.21.1] - 2026-11-28
 
 ### Changed

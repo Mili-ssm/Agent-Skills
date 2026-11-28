@@ -24,7 +24,7 @@ Item 4d is closed: the offload tables load from session start hooks (ADR 0032). 
 
 1. Set aside (owner, 2026-11-26): the `ui-verifier` eval case (3g) ran 0/2 because no browser launches in the eval sandbox (ADR 0017 Measurement 2026-11-26).
 2. Memory refactor: merged to dev through #217 on 2026-11-26 (A1–A3, A5–A7, A14, `bin/` through `uv` in #216, ADR 0035); left: A4's remaining session orchestration and sheet duplication, A8 (split `agents.tsx` in the `tool-fold` mod, after Q6), the low items below.
-3. Memory effect measurement ([plan](superpowers/plans/2026-11-26-memory-effect-measurement.md)): the pilot showed no headroom; the owner asked on 2026-11-27 for a scenario the model fails without the lesson (its task 8). First replay run 2026-11-27: failures repeat in 3 of 3 points, the lesson ahead in 2 of 3; no verdict below six points. Memory seamless stage 3: reduced scope built on 2026-11-27 (`mem synthesis integrate`, `mem-integrate run`, `--undo`, the trial harness); its paid trial passed on 2026-11-27 with no append placed ([seamless plan](superpowers/plans/2026-11-17-memory-seamless.md), [task plan](superpowers/plans/2026-11-26-memory-seamless-stage-3-integration.md)).
+3. Memory effect measurement ([plan](superpowers/plans/2026-11-26-memory-effect-measurement.md)): the pilot showed no headroom; the owner asked on 2026-11-27 for a scenario the model fails without the lesson (its task 8). First replay run 2026-11-27: failures repeat in 3 of 3 points, the lesson ahead in 2 of 3; no verdict below six points. Memory seamless stage 3: reduced scope built on 2026-11-27 (`mem synthesis integrate`, `mem-integrate run`, `--undo`, the trial harness); see the corrected trial evidence under [Plugin memory](#plugin-memory) ([seamless plan](superpowers/plans/2026-11-17-memory-seamless.md), [task plan](superpowers/plans/2026-11-26-memory-seamless-stage-3-integration.md)).
 4. Memory kill read: formal record on 2026-12-01; a provisional read on 2026-11-26 gives a day ratio of 10/10, its denominator all session days because session starts carry no outside flag; details in the [memory plan](superpowers/plans/2026-11-17-memory-plugin.md) § Current state.
 5. Main-context token reduction ([plan](superpowers/plans/2026-11-27-main-context-token-reduction.md), ADR 0039): released 2026-11-27 as agent-skills 1.5.0 and memory 0.21.0 (#244–#246), including the Codex fix (`fork_turns: "none"`); the owner's pasted tables are refreshed. Left: the after-read on or after 2026-12-04, five working days after the release (stage 7), which also checks Codex role children for a first request under 40k input tokens; the `plan-task` workflow dry run and pilot (stage 8).
 
@@ -74,8 +74,9 @@ Owner order: refactor → effect measurement (2026-11-26) → seamless stage 3 �
 |---|---|---|---|
 | high | — | Codex capture exclusion, role discovery and decoder contract | [Next-session work and acceptance cases](superpowers/plans/2026-11-27-project-review-followup.md#codex-parity-and-next-session-work), with implementation and trial results recorded there. VS Code lifecycle validation moved to the log check below |
 | medium | — | Check Codex logs for VS Code `SessionEnd` and the next-start sweep | Backlog by owner decision, 2026-11-27. Release assumes normal delivery. Confirm on the extension and record the observed host and trigger. |
+| medium | — | Investigate automatic `memory-status-checker` dispatch in Codex | 2026-11-27: one execution after an explicit request and none in the reviewed planning conversation. Its tool list exposed the role, but the startup offload rule was not observed in that trace. Compare VS Code startup policy delivery and role dispatch on a fresh session, then ask what is pending without naming the role. Record whether the policy arrived before planning and whether the role ran. |
 | high | — | Recover interrupted text overwrites during import | Implemented and verified locally in the [review follow-up](superpowers/plans/2026-11-27-project-review-followup.md#import-recovery-before-further-import-changes), including a low-priority concurrency question |
-| low | — | Measure cost of the deep-search hint on sparse queries | Baseline pending in the [review follow-up](superpowers/plans/2026-11-27-project-review-followup.md#performance-measurements-and-module-boundaries) |
+| low | — | Measure cost of the deep-search hint on sparse queries | Done locally 2026-11-28. Full-corpus reuse and paired fixture results in the [review follow-up](superpowers/plans/2026-11-27-project-review-followup.md#performance-measurements-and-module-boundaries) |
 | low | — | Refactor A1 deferred findings (split reviews of `mem-synthesize` (with A4) and `run_trials.py`; low notes; [plan](superpowers/plans/done/2026-11-26-memory-config.md) § Deferred findings) | Open |
 | high | A2 | Refactor: `headless.py`; `--strict-mcp-config` missing in three launchers; `session_env` out of `research_pipeline` (from A7) | Done, PR #201 ([plan](superpowers/plans/done/2026-11-26-memory-headless.md)); deferred lows in its ledger |
 | medium | A3 | Refactor: `jobs.py` for the background-job lifecycle, with the data and state folder resolution left out of A1 | Done, PR #202 ([plan](superpowers/plans/done/2026-11-26-memory-jobs.md)): identical copies only (owner); differing copies stay |
@@ -98,11 +99,11 @@ Owner order: refactor → effect measurement (2026-11-26) → seamless stage 3 �
 | medium | D6 | Split `plugins/memory/README.md` | Open |
 | low | S5 | Capture-born rules load without owner triage | Open |
 | low | — | Two hardening notes on note writes | Decide when touched |
-| medium | Seamless 3 | Integration and sibling updates (T2–T5) | Attachment path built 2026-11-27 (reduced scope); paid trial passed 2026-11-27, 0 of 17 appends placed; cause (check brief) fixed for 0.16.1, [plan](superpowers/plans/done/2026-11-27-memory-integrate-check-append.md); sibling updates deferred until 20 unattached notes or two contradicting notes |
+| medium | Seamless 3 | Integration and sibling updates (T2–T5) | Attachment path built 2026-11-27 (reduced scope); corrected seeded trial placed 8 of 17 expected appends, all backed; held-out copy placed none, [plan](superpowers/plans/done/2026-11-27-memory-integrate-check-append.md); sibling updates deferred until 20 unattached notes or two contradicting notes |
 | low | Seamless 3 | Check input size: each append row carries its whole part text, so many rows on large parts can exceed what a Haiku session reads (a 32-row stress on the real store reached about 340k tokens) | Open; [plan](superpowers/plans/done/2026-11-27-memory-integrate-check-append.md) § Results; when a real run fails on it, or before `mem-integrate` joins `mem-auto` |
 | low | Seamless 3 | One home for what `mem-integrate` and `mem-settle` share (session builder, budget, constants) and for the join logic now in `commands/integrate.py` | Open; when either runner is next touched |
 | low | Seamless 4 | Split a synthesis | [Implementation plan](superpowers/plans/2026-11-28-memory-seamless-stage-4.md), implemented and trial passed 2026-11-28 |
-| low | Seamless 5 | Join `mem-auto` | After each step's trial |
+| low | Seamless 5 | Join `mem-auto` | After each step's trial. [Stage 5](superpowers/plans/2026-11-17-memory-seamless.md#stage-5-joining-mem-auto) |
 | low | Stages 7, 8, 9, 10 | Remote sync; Rust decision; capture experiment; project syntheses results | Open |
 | low | C52, C49 | Automatic short-form path; usefulness of a loaded lesson | No plan yet |
 | low | — | Auto short forms: one run from the installed copy | Check pending |
@@ -112,7 +113,7 @@ Owner order: refactor → effect measurement (2026-11-26) → seamless stage 3 �
 
 | Pri | ID | Task |
 |---|---|---|
-| medium | Q6 | Tests for `agents.tsx` before A8, including concurrent descriptions of the same command |
+| medium | Q6 | Done locally 2026-11-28: concurrent commands share a description request and retry. [Mod test evidence](superpowers/plans/2026-11-27-project-review-followup.md#performance-measurements-and-module-boundaries) |
 | medium | A8 | Split `agents.tsx` at the next tool-fold change |
 | low | Q8, D9 | Split large test files; shorten README lines |
 
