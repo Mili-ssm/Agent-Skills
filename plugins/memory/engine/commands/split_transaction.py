@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import fcntl
 import hashlib
 import json
 import os
@@ -11,7 +12,7 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from core import safe_io
+from core import jobs, safe_io
 from core.file_journal import FileJournal
 
 if TYPE_CHECKING:
@@ -194,17 +195,30 @@ def recover_split(root: Path) -> bool:
         return True
 
 
-def split_status(root: Path) -> tuple[bool, list[str]]:
+def split_status(root: Path) -> tuple[bool, list[str]]:  # ruff: ignore[complex-structure]
     journal = FileJournal(root, ".split-recovery")
-    if journal.pending():
-        return True, []
-    folder = root / ".split-history"
-    safe_io.refuse_symlink_chain(root, folder)
-    groups = []
-    if folder.exists():
-        for path in sorted(folder.glob("*.json")):
-            group = path.stem
-            data, _ = _read_receipt(root, group)
-            if data["state"] == "applied":
-                groups.append(group)
-    return False, groups
+    lock = journal.folder / jobs.LOCK_NAME
+    safe_io.refuse_symlink_chain(root, lock)
+    try:
+        fd = os.open(lock, os.O_RDONLY | os.O_NOFOLLOW)
+    except FileNotFoundError:
+        return False, []
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise BlockingIOError("another file operation or recovery is running") from exc
+        if journal.pending():
+            return True, []
+        folder = root / ".split-history"
+        safe_io.refuse_symlink_chain(root, folder)
+        groups = []
+        if folder.exists():
+            for path in sorted(folder.glob("*.json")):
+                group = path.stem
+                data, _ = _read_receipt(root, group)
+                if data["state"] == "applied":
+                    groups.append(group)
+        return False, groups
+    finally:
+        os.close(fd)

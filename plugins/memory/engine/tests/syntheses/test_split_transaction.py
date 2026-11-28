@@ -1,10 +1,11 @@
 import json
+import os
 from dataclasses import replace
 
 import pytest
 from commands import split_transaction as tx
 from commands.split_plan import SplitPlan
-from core import safe_io
+from core import jobs, safe_io
 from core.file_journal import DivergedError
 
 
@@ -157,3 +158,17 @@ def test_io_failure_rolls_back_and_reports_failed_rollback(tmp_path, monkeypatch
         tx.apply_split(tmp_path, lambda: p)
     monkeypatch.setattr(safe_io, "replace_file", replace)
     assert tx.recover_split(tmp_path)
+
+
+def test_status_rejects_active_writer_without_creating_files(tmp_path):
+    folder = tmp_path / ".split-recovery"
+    fd = jobs.take_run_lock(folder)
+    assert fd is not None
+    before = set(tmp_path.rglob("*"))
+    try:
+        with pytest.raises(BlockingIOError, match="running"):
+            tx.split_status(tmp_path)
+        assert set(tmp_path.rglob("*")) == before
+    finally:
+        os.close(fd)
+    assert tx.split_status(tmp_path) == (False, [])
