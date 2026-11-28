@@ -1,6 +1,6 @@
 # Memory seamless, stage 3: integration and sibling updates Implementation Plan
 
-Status: built in the reduced scope; paid trial passed 2026-11-27, no append placed (seamless plan § Results, "Stage 3 trial") · Date: 2026-11-26, built 2026-11-27 · Branch: feat/memory-seamless-integrate
+Status: built in the reduced scope; corrected seeded trial and held-out results recorded in the [append fix plan](done/2026-11-27-memory-integrate-check-append.md#results) · Date: 2026-11-26, built 2026-11-27 · Branch: feat/memory-seamless-integrate
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

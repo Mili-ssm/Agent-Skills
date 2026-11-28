@@ -1307,6 +1307,7 @@ export function isUselessDescription(description: string, command: string): bool
 const TRANSLATION_CACHE_MAX = 200
 const TRANSLATION_RETRY_MS = 5000
 const translations = new Map<string, string>()
+const pendingTranslations = new Map<string, Promise<string>>()
 const translationStats = { ok: 0, retried: 0, failed: 0, cached: 0 }
 // Why tries failed (`unanswered:<reason>`, `cut`, `filtered`, `error`), for `/agents-debug`: the next fix starts from evidence.
 const translationFails = new Map<string, number>()
@@ -1357,7 +1358,25 @@ async function describeCommand($: EngineInterface, agentId: string, stepId: stri
   if (text !== '') {
     translationStats.cached += 1
   } else {
-    text = await askCommand($, command)
+    let pending = pendingTranslations.get(command)
+    if (pending === undefined) {
+      pending = translateCommand($, command)
+      pendingTranslations.set(command, pending)
+    }
+    text = await pending
+    if (text === '') {
+      await hintPlanNow($, agentId, await $.clock.now())
+      return
+    }
+  }
+  // The phrase is what the plan matches on; the "Script:" tag is only for display.
+  await showDetail($, agentId, stepId, script === undefined ? clip(text, 120) : clip(`Script: ${text.charAt(0).toLowerCase()}${text.slice(1)}`, 120))
+  await hintPlan($, agentId, clip(text, 120), await $.clock.now())
+}
+
+async function translateCommand($: EngineInterface, command: string): Promise<string> {
+  try {
+    let text = await askCommand($, command)
     if (text === '') {
       translationStats.retried += 1
       await new Promise<void>(resolve => $.clock.after(TRANSLATION_RETRY_MS, resolve))
@@ -1365,18 +1384,17 @@ async function describeCommand($: EngineInterface, agentId: string, stepId: stri
     }
     if (text === '') {
       translationStats.failed += 1
-      await hintPlanNow($, agentId, await $.clock.now())
-      return
+      return ''
     }
     translationStats.ok += 1
     if (translations.size >= TRANSLATION_CACHE_MAX) {
       translations.delete(translations.keys().next().value as string)
     }
     translations.set(command, text)
+    return text
+  } finally {
+    pendingTranslations.delete(command)
   }
-  // The phrase is what the plan matches on; the "Script:" tag is only for display.
-  await showDetail($, agentId, stepId, script === undefined ? clip(text, 120) : clip(`Script: ${text.charAt(0).toLowerCase()}${text.slice(1)}`, 120))
-  await hintPlan($, agentId, clip(text, 120), await $.clock.now())
 }
 
 async function showDetail($: EngineInterface, agentId: string, stepId: string, detail: string): Promise<void> {

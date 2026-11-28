@@ -10,6 +10,7 @@ import os
 import re
 import sys
 from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict, Unpack, cast
 
@@ -842,18 +843,11 @@ def cmd_stats(args: argparse.Namespace) -> int:
     return 0
 
 
-def _deeper_hit(args: argparse.Namespace, query: str, printed: int) -> bool:
+def _deeper_hit(ctx: _SearchContext, query: str, printed: int) -> bool:
     """True when a --deep search would print more note lines than the default one did (`printed`)."""
     try:
-        full = note_search.build_corpus(
-            args.root,
-            topic=args.topic,
-            kind=args.kind,
-            status=args.status,
-            confidence=args.confidence,
-            level=args.level,
-            superseded=args.superseded,
-        )
+        args = ctx.args
+        full = ctx.full_corpus
         return (
             len(
                 note_search.rank(full, query, limit=len(full.notes))[
@@ -880,6 +874,19 @@ class _SearchContext:
     default_type: str | None
     filters: dict[str, Any]
     today: datetime.date
+
+    @cached_property
+    def full_corpus(self) -> note_search.Corpus:
+        args = self.args
+        return note_search.build_corpus(
+            args.root,
+            topic=args.topic,
+            kind=args.kind,
+            status=args.status,
+            confidence=args.confidence,
+            level=args.level,
+            superseded=args.superseded,
+        )
 
 
 @dataclass(frozen=True)
@@ -1114,7 +1121,7 @@ def _search_one(
     hits = _QueryHits(result, linked, printed, sections)
     _search_print_query(ctx, query, hits, bool(printed or from_others))
     if ctx.default_type and ctx.with_notes and len(result) < _SPARSE_HITS and not more:
-        more = _deeper_hit(args, query, len(result))
+        more = _deeper_hit(ctx, query, len(result))
     if not args.also and ctx.with_notes:  # a footer names --offset, which applies to every query
         _page_footer(args.offset, len(result), len(ranked))
     _search_log(ctx, query, hits)
