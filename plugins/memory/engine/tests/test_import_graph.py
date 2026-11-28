@@ -47,7 +47,9 @@ def _source(name: str) -> Path:
     return path / "__init__.py" if path.is_dir() else path.with_suffix(".py")
 
 
-@pytest.mark.parametrize("module", [*NOTE_MODULES, *SYNTHESES_MODULES, "session.notices"])
+@pytest.mark.parametrize(
+    "module", [*NOTE_MODULES, *SYNTHESES_MODULES, "session.notices", "commands.split_plan"]
+)
 def test_module_imports_without_mem(module):
     code = f"import sys, {module}; assert 'mem' not in sys.modules, sorted(sys.modules)"
     result = subprocess.run(
