@@ -6,7 +6,7 @@ Status: accepted · Date: 2026-11-26 · Amends 0021, 0012
 
 ADR 0012 keeps one copy of the offload table; ADR 0021 makes `user-config/` the source the owner pastes into the user-level `CLAUDE.md`. Every Claude Code user of `agent-skills` or `memory` therefore pastes and re-pastes the tables by hand, and a stale copy goes unnoticed. The owner asked to plan a hook (backlog 4d, 2026-11-25) and to build it with a switch (2026-11-26). The case rests on upkeep: the usage study of 2026-11-23 put the cost gain at about 7 USD a week.
 
-Facts (probe of 2026-11-26, throwaway plugin, Sonnet, plan `docs/superpowers/plans/2026-11-26-offload-policy-hook.md`):
+Facts (probe of 2026-11-26, throwaway plugin, Sonnet, plan `docs/superpowers/plans/done/2026-11-26-offload-policy-hook.md`):
 
 - Hook output reached the model in 4 of 4 eval runs of the probe (throwaway plugin, 2026-11-26), as plain output and as `additionalContext`; the shipped hooks use plain output. The hooks run once per eval session, source `startup`.
 - A dispatched subagent did not report the hook text in 4 of 4 runs (weak: the grader also fails when no subagent ran).

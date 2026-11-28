@@ -4,6 +4,12 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-11-28
+
+### Changed
+
+- Agents report the evidence needed for the caller's next decision and what changed on follow-up. In plan-loop fix rounds, the fix worker checks reported findings and the caller rules on disputed findings. Refresh your copied routing and offload policies and Codex roles.
+
 ## [1.5.0] - 2026-11-27
 
 ### Added

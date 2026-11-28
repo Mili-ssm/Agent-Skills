@@ -1,6 +1,6 @@
 # Main-context token reduction: call economy, reports, briefs, reviewer cadence
 
-**Status** — Planned 2026-11-27 on `dev` at `3b923dd`; executing on `feat/main-context-budget` since 2026-11-27. Stage 5 (Codex) is done first on its own branch `fix/codex-fork-turns` (commit `3574c14`, port-only, no eval), and `feat/main-context-budget` starts from it. Stages 0–6 built and measured on 2026-11-27 (ADR 0039); open: the owner's push and pull request, the post-release refresh, the stage 7 after-read and the stage 8 dry run and pilot. Open boxes are pending work; tick a box when its check passes.
+**Status** — Stages 0–6 released; stages 7–8 open. Planned 2026-11-27 on `dev` at `3b923dd`; executed on `feat/main-context-budget` on 2026-11-27 (merged in #244). Stage 5 (Codex) is done first on its own branch `fix/codex-fork-turns` (commit `3574c14`, port-only, no eval), and `feat/main-context-budget` starts from it. Stages 0–6 built and measured on 2026-11-27 (ADR 0039); released 2026-11-27 as agent-skills 1.5.0 and memory 0.21.0 (#244, #245, #246; tags `agent-skills-v1.5.0`, `memory-v0.21.0`), with the pasted tables in `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md` refreshed the same day. Open: the stage 7 after-read (from 2026-12-04) and the stage 8 dry run and pilot. Open boxes are pending work; tick a box when its check passes.
 
 **Owner decisions, 2026-11-27** — D1 yes, for plan-loop fix rounds only. D2 yes, a measured pilot. D3: text only, no global switch (`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` also removes background Bash); in Codex, wait with `wait_agent`.
 
@@ -262,9 +262,9 @@ Seven rules dispatch the reviewer (`offload-policy.md` row and closing line; `ro
 - [x] `CHANGELOG.md` of `agent-skills` and of `memory`, under `## [Unreleased]`, for users: reports are shorter and capped in words; the brief has four parts; one change is reviewed once and low findings are one line each; the offload text counts calls; users who pasted the offload table or the routing text must paste the new version.
 - [x] ADR 0039 "The main conversation budgets calls, reports and briefs" (amends 0013: add "Amended by 0039" to its Status line), with the eval tables under a dated heading (`## Measurement YYYY-MM-DD`) and the kill criteria of stage 7 in "Revisit if"; `## Review` entries in ADR 0017 (reviewer format and triggers) and ADR 0021 if the structure of `routing.md` changed.
 - [x] README catalog rows if a cap is quoted there. Check: `validate.py`.
-- [ ] Stage files by name (never the owner's uncommitted `CLAUDE.md` and `README.md` edits), run `agent-skills:skeptical-reviewer` on the staged diff, then ask the owner before pushing; pull request to `dev`.
+- [x] Stage files by name (never the owner's uncommitted `CLAUDE.md` and `README.md` edits), run `agent-skills:skeptical-reviewer` on the staged diff, then ask the owner before pushing; pull request to `dev`. Done 2026-11-27: the owner had committed those edits in `d4b35cc`, which #244 carries; review rounds 1 and 2 covered the branch (ADR 0039 § Measurement names the regression round 1 found) and one more review covered the release commit; the owner asked for the push and release.
 - [x] Record the after-read date (five working days after the release) as an item of `docs/backlog.md`, with its `Updated` and `Expires` dates moved.
-- [ ] After the release the owner refreshes the pasted tables in `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md` (the owner keeps hooks off).
+- [x] After the release the owner refreshes the pasted tables in `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md` (the owner keeps hooks off).
 
 ## Stage 7: after-read
 
@@ -319,3 +319,11 @@ Source: the owner's local rollouts in `~/.codex/sessions`, November 2026 (Codex 
 | Does a fresh child lack context? | At most 1 of 160 fresh children (0.164 spawns passed `fork_turns: "none"` with an explicit `model`) ended with a missing-context stop | final message matched for `BLOCKED` or missing context |
 
 Fix (stage 5, commit `3574c14`): a `CODEX_REWRITES` entry turns the policy's "A worker sees none of this conversation," into an instruction to spawn every worker with `fork_turns` set to `"none"`. Its check is the next Codex after-read: role children with `history_mode: paginated` and a first request under 40k input tokens.
+
+## 2026-11-28 follow-up: handoffs during a session
+
+- [x] Align plan-loop fix verification with D1 and check general review rules for conflicting instructions.
+- [x] Update both plugins' report instructions and regenerate their shared text and ports.
+- [x] Refresh the installed Codex rules and roles, then compare them with the validated sources.
+
+Behavioral evaluation remains open for the after-read. Sample whether the caller had to reconstruct a reported conclusion or ask for missing evidence. Count necessary independent checks separately.

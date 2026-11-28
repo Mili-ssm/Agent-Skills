@@ -189,7 +189,7 @@ def test_memory_and_note_modules_never_import_synthesize():
 
 
 # Every cross-package edge allowed in the engine, as (importer, imported), frozen at the base of backlog A14
-# (docs/superpowers/plans/2026-11-26-memory-engine-packages.md). Each package task adds its package to the
+# (docs/superpowers/plans/done/2026-11-26-memory-engine-packages.md). Each package task adds its package to the
 # engine; an edge not listed here is new and fails. The list only shrinks.
 FROZEN_EDGES = {
     ("corroborate", "capture"),

@@ -50,6 +50,6 @@ A worker sees none of the conversation. Measured here ([ADR 0013](https://github
 3. **Decisions already taken, each with its reason**, so it neither reopens nor contradicts them.
 4. **Checks**: the commands that prove the result.
 
-Name a file the worker can open (a committed plan task, a spec, a commit range) instead of restating it, and write out only what exists nowhere but here. Every worker already has its stop rule and its report format: state one only to change it. A brief to `Explore` still states a length, because that agent's report format is not ours on every tool.
+Name a file the worker can open (a committed plan task, a spec, a commit range) instead of restating it, and write out only what exists nowhere but here. Every worker already has its stop rule and its report format: state one only to change it. For a built-in explorer, request the answer with its decisive source and any uncertainty that changes the next action. A brief to `Explore` still states a length, because that agent's report format is not ours on every tool.
 
 State the what, the limits and the check, not each step. A task whose design is still open is not delegated: settle it first (Cognition, *Don't build multi-agents*: actions carry implicit decisions, and workers that cannot see them make conflicting ones).

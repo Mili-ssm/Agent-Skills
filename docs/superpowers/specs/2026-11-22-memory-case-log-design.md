@@ -1,6 +1,6 @@
 # Case log of a lesson: design
 
-Status: approved by the owner on 2026-11-22, rows C64 to C72 as revised the same day after the plan's pre-mortem · [plan](../plans/2026-11-22-memory-case-log.md) · Extends C49 of [the capture design](2026-11-21-memory-capture-design.md), whose table reserves these numbers.
+Status: approved by the owner on 2026-11-22, rows C64 to C72 as revised the same day after the plan's pre-mortem · [plan](../plans/done/2026-11-22-memory-case-log.md) · Extends C49 of [the capture design](2026-11-21-memory-capture-design.md), whose table reserves these numbers.
 
 ## Goal
 

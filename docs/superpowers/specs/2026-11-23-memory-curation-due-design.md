@@ -1,6 +1,6 @@
 # The `Curation due` count and the noise of the curation queue: design
 
-Status: approved by the owner on 2026-11-23 (the two choices below) · [plan](../plans/2026-11-23-memory-curation-due.md) · The table of [the capture design](2026-11-21-memory-capture-design.md) reserves the numbers C98 to C107. C101 was narrowed and C106, C107 added after the plan's pre-mortem.
+Status: approved by the owner on 2026-11-23 (the two choices below) · [plan](../plans/done/2026-11-23-memory-curation-due.md) · The table of [the capture design](2026-11-21-memory-capture-design.md) reserves the numbers C98 to C107. C101 was narrowed and C106, C107 added after the plan's pre-mortem.
 
 ## Goal
 

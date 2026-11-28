@@ -51,7 +51,7 @@ On the owner's proposal, `scripts/lint_touched.py` and its tests are removed: pr
 
 ## Review 2026-11-26: `mem.py` clean
 
-`plugins/memory/engine/mem.py` and `tests/test_curation.py` now pass the gate with no finding, behavior unchanged. Plan: [mem.py clean](../superpowers/plans/2026-11-26-mem-py-ruff-clean.md). It unblocked one user-visible change: the session start text names `memory:memory-curator` when curation is due.
+`plugins/memory/engine/mem.py` and `tests/test_curation.py` now pass the gate with no finding, behavior unchanged. Plan: [mem.py clean](../superpowers/plans/done/2026-11-26-mem-py-ruff-clean.md). It unblocked one user-visible change: the session start text names `memory:memory-curator` when curation is due.
 
 | Measure | Before | After |
 |---|---|---|

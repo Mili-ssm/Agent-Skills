@@ -7,7 +7,7 @@ Status: accepted · Date: 2026-11-26 · Amends 0033
 - `plugins/memory/engine/` held 35 modules in one folder. Families shared a filename prefix instead of a package: seven `corroborate_*`, `research_*`, `capture*`, `settle*`, `synth*`. No ADR or plan recorded a reason; the layout followed from how the code starts: `mem.py` runs as a PEP 723 script (`uv run --script`), whose folder Python puts first on `sys.path`, and the `bin/` launchers insert `engine/`.
 - Research 2026-11-26 (memory `m:organize-source-folders-by-feature-or-component-what`): group code by what changes together (Common Closure Principle; Parnas 1972; vertical slices; package by component), colocate helpers and tests, treat a repeated filename prefix as a missing package, keep nesting shallow, and check boundaries with an import test, because folders alone erode. No source gives a file-count threshold.
 - A package beside the script needs no install: with `engine/` on `sys.path`, `from synthesize import pipeline` resolves `engine/synthesize/pipeline.py`.
-- The owner asked for this organization on 2026-11-26 and chose a pilot: `mem-synthesize` (review A4) moved into `engine/synthesize/` ([plan](../superpowers/plans/2026-11-26-memory-synthesize-split.md)).
+- The owner asked for this organization on 2026-11-26 and chose a pilot: `mem-synthesize` (review A4) moved into `engine/synthesize/` ([plan](../superpowers/plans/done/2026-11-26-memory-synthesize-split.md)).
 
 ## Decision
 

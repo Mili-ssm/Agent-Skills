@@ -43,6 +43,7 @@ Task and acceptance criteria · owned files (or area) · checks to run · constr
 Your final message is all the caller receives, and the main conversation re-reads it on every later turn, so keep it within 200 words:
 - Open with the result in one or two lines, then what the caller must act on.
 - Keep every path, number and quote exact; cut the narrative, the restated brief and the account of your steps.
+- On follow-ups, report changes, newly relevant evidence and unresolved findings that still need action; retain mandatory sections and critical risks, and identify the earlier result the update changes.
 - When something does not fit, end with `Left out: <what>`, because the caller can ask you for it.
 - A brief may lower this cap, never raise it; a report path named in the brief receives the full report.
 <!-- /shared:report-budget -->
@@ -52,7 +53,7 @@ No diff dumps: the table names each file and what changed, not the code.
 ```markdown
 ## Result: DONE | BLOCKED — <one line>
 | File | Change |
-Verification: <commands> → <result>
+Verification: <criterion; command> → <test result>
 Open questions / risks: <list, or none>
 ```
 

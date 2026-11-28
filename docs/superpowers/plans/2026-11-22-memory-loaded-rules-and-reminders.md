@@ -2,9 +2,9 @@
 
 Status: in progress · the rest of C49 (usefulness) and the automatic attempt of C72 remain; reminders stay parked on `idea/memory-reminders` (C51)
 
-Outcome (2026-11-22): designed and ruled on by the owner (decisions C40 to C51 of the spec). Reminders were built on the branch `idea/memory-reminders` and parked there by the owner (C51): not integrated. Loaded rules C46 to C48 shipped in 0.5.0 ([plan](2026-11-22-memory-loaded-rules.md)), the automatic path (C52) in 0.6.0, the case log (first half of C49, C64 to C71) in 0.7.0; what remains of B4 is the rest of C49 and the automatic attempt of C72.
+Outcome (2026-11-22): designed and ruled on by the owner (decisions C40 to C51 of the spec). Reminders were built on the branch `idea/memory-reminders` and parked there by the owner (C51): not integrated. Loaded rules C46 to C48 shipped in 0.5.0 ([plan](done/2026-11-22-memory-loaded-rules.md)), the automatic path (C52) in 0.6.0, the case log (first half of C49, C64 to C71) in 0.7.0; what remains of B4 is the rest of C49 and the automatic attempt of C72.
 
-**Spec:** [the capture design](../specs/2026-11-21-memory-capture-design.md), phase B4; decisions C13, C15, C18, C19, C20, C38. Earlier stage: [B3, plan and results](2026-11-22-memory-capture-corroboration.md). Evidence: the learning loop study (`.local/studies/2026-11-21-memory-learning-loop.md`, local, not published) (E4: context files raised cost with no gain in success) and ADR 0023, "Stage B3".
+**Spec:** [the capture design](../specs/2026-11-21-memory-capture-design.md), phase B4; decisions C13, C15, C18, C19, C20, C38. Earlier stage: [B3, plan and results](done/2026-11-22-memory-capture-corroboration.md). Evidence: the learning loop study (`.local/studies/2026-11-21-memory-learning-loop.md`, local, not published) (E4: context files raised cost with no gain in success) and ADR 0023, "Stage B3".
 
 ## Goal of B4
 
@@ -49,7 +49,7 @@ The owner ruled on 2026-11-22; the decisions are C40 to C51 of [the capture desi
 | Part | Scope | Decisions | State |
 |---|---|---|---|
 | Reminders | Reminders, the session count, the summary line, the measure of showings | C40 to C45 | Parked (C51): built on the branch `idea/memory-reminders`, whose plan file (`2026-11-22-memory-reminders.md` in this folder, on that branch only) holds the state, the one real-model run and what to change if taken up again |
-| Loaded rules, first release | A few rules with short forms the owner has read, the line for those that did not fit, a switch to turn one off | C46 to C48, C53, C54 | [Plan](2026-11-22-memory-loaded-rules.md), amended after its pre-mortem |
+| Loaded rules, first release | A few rules with short forms the owner has read, the line for those that did not fit, a switch to turn one off | C46 to C48, C53, C54 | [Plan](done/2026-11-22-memory-loaded-rules.md), amended after its pre-mortem |
 | Loaded rules, automatic path | Short forms written without review, only grave lessons waiting at triage, project lessons seen once | C52 | Later plan, after the first release's gate |
 | Usefulness | A lesson that loaded and still happened, exceptions | C49 | Later plan: no sighting carries a date today |
 
@@ -79,7 +79,7 @@ Limits: three runs a condition, one task, one model; every rule bore on the task
 | The session start hook also fires after a compaction (matcher `startup\|clear\|compact`), so R5's count can be raised there | `plugins/memory/hooks/hooks.json` |
 | A record may carry `valid_until`, and a lapsed record is no longer live | `records.is_live` |
 | `released`, `triage` and `owner_confirmed` on a global lesson; quarantine hides an unconfirmed one | `plugins/memory/engine/records.py`; design C31, C38 |
-| A background command must find its folders as `mem` does, and at least one test must run with the environment its real launcher gives it | The defect fixed in 0.4.1: [B3 results](2026-11-22-memory-capture-corroboration.md#results) |
+| A background command must find its folders as `mem` does, and at least one test must run with the environment its real launcher gives it | The defect fixed in 0.4.1: [B3 results](done/2026-11-22-memory-capture-corroboration.md#results) |
 | A dry run with the real model on a copy of real records found defects that unit tests and reviews had not | The same results |
 | Text that is always loaded raised an agent's cost by over 20% with no gain in success | The learning loop study, E4 |
 
