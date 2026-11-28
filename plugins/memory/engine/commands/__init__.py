@@ -15,5 +15,6 @@ Modules:
 `install`: `install-command`, which puts a `mem` launcher on PATH, and the plugin-root record the launcher follows
 `synthesis`: `synthesis` (list, new, add, append, edit, attach, rename, remove, detach, topics, refs) and `project-synthesis`, with the logic only they use
 `split_plan`: read-only synthesis split proposals and previews
+`split_transaction`: recoverable split groups and exact undo
 `integrate`: `synthesis integrate`, which joins knowledge notes to parts of a synthesis (registered by `mem`, not by the synthesis dispatch, because it imports `synthesis`)
 """
