@@ -1,6 +1,6 @@
 # Backlog: open work by area and priority
 
-Updated: 2026-11-27 · Expires: 2026-12-11
+Updated: 2026-11-28 · Expires: 2026-12-12
 
 **Expiry rule (owner, 2026-11-25):** every edit sets `Updated` to the edit date and `Expires` to 14 days later, so the list cannot sit unmaintained. Past `Expires`, the list is stale: re-check it against its sources before acting on it, then refresh it or delete it.
 
@@ -16,6 +16,7 @@ This file is an index, not a home: the detail, evidence and checks of each item 
 | [Usage follow-ups plan](superpowers/plans/2026-11-18-usage-followups.md) | Items 3g and 4b; its item 6 is memory stage 4 |
 | Local, unpublished usage study `.local/studies/2026-11-23-weekly-usage.md` | IDs G7–G19 with their cost figures |
 | [Main-context token reduction plan](superpowers/plans/2026-11-27-main-context-token-reduction.md) | Call economy and delegation thresholds, report budget, brief by reference, `skeptical-reviewer` cadence and format, Codex spawn mode, a workflow pilot; owner decisions D1 and D2; its figures in dollars are in the local study `.local/studies/2026-11-27-main-context-token-reduction.md` |
+| [Parity plan: Copilot and Antigravity](superpowers/plans/2026-11-28-google-copilot-parity.md) | Stages 1–8 for `agent-skills` and `memory` on Copilot CLI and Antigravity CLI; owner rulings on D1, D2, D5 and D6, with D3 and D4 open; evidence in the [parity audit](studies/2026-11-28-google-copilot-parity-audit.md) |
 
 Item 4d is closed: the offload tables load from session start hooks (ADR 0032). Plans whose `Status` line says done have no open work, even with unticked boxes; they live in `superpowers/plans/done/`. Review IDs left out are closed: D3, D4, D5, D8 and S1–S4, S6 are applied (#181, #182); B3 and B4 are done (92d3b8a, 2026-11-26); P1 and B1 are done (2026-11-26; merged in #218 on 2026-11-27; ADR 0017 Measurement 2026-11-26); B1's remainder is B1b below. A12 is deferred until its files are touched; A13 is accepted (ADR 0011). Q1, Q2, Q3, A9, A10 and B9–B12 are done (ADR 0029); Q4 is done (#193: suite 287 s → about 30 s); D1 is done (owner chose a `validate.py` check, 2026-11-25). A1 is done (#199: store resolution in `engine/config.py`, owner rulings 2026-11-26). P4 is done: the policy names the cap; its closing line stays, so the rule keeps three homes (ADR 0017 Measurement 2026-11-26). Owner rulings 2026-11-25: G12 replaced (workers wait with `Monitor`, ADR 0025 Review), G9 set to 600k in the owner's settings, review decision 6 recorded as N12, G7 kept as is, issue #124 closed, `pre-mortem` to Opus medium (ADR 0018 Review), no model trials now (G13, G14 stay), G10, G11, G15, G16, G18 and G19 declined, 3g: reinstall the global `playwright` package (needs `sudo`, owner).
 
@@ -40,6 +41,7 @@ Done 2026-11-25 (branch `feat/repo-tooling`, ADR 0029): Q1, Q2, Q3, A9, A10, B9�
 | low | — | pre-commit follow-ups (ADR 0031): the basedpyright hook lacks `playwright`, so touching `ux_audit.py` fails on its import; nothing runs `pre-commit validate-config` before a commit | S | Deferred |
 | low | S7 | `scripts/cloud-setup.sh` may pick another marketplace's `Explore.md` | S | Done 2026-11-27: the fallback takes only a clone whose `marketplace.json` names `mili-ssm` |
 | medium | — | Remove Claude-only wording in generated Codex policy, routing and agent TOMLs | M | Done by `CODEX_REWRITES`; generated files and 114 port tests rechecked on 2026-11-27 |
+| medium | — | Parity on Copilot and Antigravity ([plan](superpowers/plans/2026-11-28-google-copilot-parity.md)): audit done 2026-11-28, nothing built | L | Proposed. Owner, 2026-11-28: Antigravity only for Google; `agent-skills` on both tools first (stages 1–4), `memory` decided after; Copilot probes in VS Code, no Antigravity access |
 
 ### Usage and cost (local study)
 

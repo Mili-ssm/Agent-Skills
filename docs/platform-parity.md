@@ -2,7 +2,7 @@
 
 What each coding-agent CLI supports of the Claude Code plugin surface, and what porting this marketplace's plugins to it would keep, lose and work around. Documentation only: the ports that exist are described in [ports.md](ports.md) (ADR 0015); nothing here is built.
 
-Verified 2026-11-23 from each vendor's documentation, read in full and fact-checked against local copies, except cells marked "first-pass reading". Refresh only on the events in [§ Refresh](#refresh). A cell reads "not documented" when the pages read say nothing; that is not proof of absence.
+Verified 2026-11-23 from each vendor's documentation, read in full and fact-checked against local copies, except cells marked "first-pass reading". Refresh only on the events in [§ Refresh](#refresh). A second reading on 2026-11-28 found cells to correct (Copilot and Antigravity hook payloads among them): see the correction table of the [parity audit](studies/2026-11-28-google-copilot-parity-audit.md#corrections-for-platform-paritymd) before relying on those columns. A cell reads "not documented" when the pages read say nothing; that is not proof of absence.
 
 ---
 
